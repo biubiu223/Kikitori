@@ -11,7 +11,7 @@ Kikitori（听译）本身以 [GNU GPL v3](LICENSE) 发布，并附有下文的*
 > their respective licenses, the licensors of this Program grant you additional permission to
 > convey the resulting work.
 
-中文说明：本程序的发布包需要和 NVIDIA CUDA 运行库、Microsoft Windows App SDK 运行库放在一起才能运行，这些库不是开源的。上面这段附加许可明确允许把本程序和这些库一起分发。
+中文说明：本程序运行时需要和 NVIDIA CUDA 运行库、Microsoft Windows App SDK 运行库一起工作，这些库不是开源的。上面这段附加许可明确允许把本程序和这些库组合使用、一起分发。（NVIDIA 运行库目前不随发布包分发，见文末。）
 
 ## 识别/翻译引擎（`engine\`，PyInstaller 打包的 Python 程序）
 
@@ -34,11 +34,17 @@ Kikitori（听译）本身以 [GNU GPL v3](LICENSE) 发布，并附有下文的*
 | certifi | 2026.7.22 | MPL-2.0 | https://github.com/certifi/python-certifi |
 | 其它纯 Python 依赖（anyio、h11、idna、filelock、fsspec、packaging、protobuf、flatbuffers、PyYAML、click、colorama、typing_extensions） | — | MIT / BSD / Apache-2.0 / PSF | 见各自项目 |
 | PyInstaller 引导程序 | 6.22.3 | GPL-2.0-or-later，附允许以任意许可证分发打包程序的例外 | https://pyinstaller.org |
-| **NVIDIA cuBLAS** | 12.9 | NVIDIA 专有许可（CUDA Toolkit EULA，可随应用再分发） | https://developer.nvidia.com/cublas |
-| **NVIDIA cuDNN** | 9.27 | NVIDIA 专有许可（cuDNN SLA，可随应用再分发） | https://developer.nvidia.com/cudnn |
-| **NVIDIA NVRTC** | 12.9 | NVIDIA 专有许可（CUDA Toolkit EULA，可随应用再分发） | https://developer.nvidia.com/cuda-toolkit |
 
-语音识别模型 Whisper large-v3（OpenAI，MIT 许可，CTranslate2 格式由 SYSTRAN 转换）**不在发布包里**，首次运行时从 HuggingFace 下载。
+## 首次运行时下载的组件（不包含在发布包中）
+
+| 组件 | 版本 | 许可证 | 来源 |
+|---|---|---|---|
+| NVIDIA cuBLAS | 12.9 | NVIDIA 专有许可（CUDA Toolkit EULA） | PyPI `nvidia-cublas-cu12`（NVIDIA 官方发布） |
+| NVIDIA cuDNN | 9.27 | NVIDIA 专有许可（cuDNN SLA） | PyPI `nvidia-cudnn-cu12`（NVIDIA 官方发布） |
+| NVIDIA NVRTC | 12.9 | NVIDIA 专有许可（CUDA Toolkit EULA） | PyPI `nvidia-cuda-nvrtc-cu12`（NVIDIA 官方发布） |
+| Whisper large-v3 模型（CTranslate2 格式） | — | MIT（OpenAI；格式由 SYSTRAN 转换） | HuggingFace `Systran/faster-whisper-large-v3` |
+
+以上组件在第一次使用时由程序从官方来源或其镜像（清华 TUNA、阿里云 PyPI 镜像；hf-mirror.com）下载到本机，下载时校验文件哈希，使用时受各自许可证约束。
 
 ## 界面（`Kikitori.exe`，WinUI 3 / .NET）
 

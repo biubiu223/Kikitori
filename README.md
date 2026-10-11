@@ -22,14 +22,14 @@
 
 - Windows 10 1809 及以上 / Windows 11，64 位
 - **NVIDIA 显卡**（建议 RTX 系列、显存 6GB 以上）并安装较新的驱动。没有 N 卡也能用 CPU 运行，但会很慢。
-- 磁盘空间：程序约 2.5GB，语音识别模型约 3GB（首次运行时自动下载）
+- 磁盘空间：程序约 450MB；首次运行时自动下载显卡运行库（约 1.3GB，解压后约 2GB）和语音识别模型（约 3GB）
 - 使用 DeepSeek 等在线翻译时需要联网和对应的 API Key
 
 ## 下载和使用
 
-1. 到 [Releases](https://github.com/biubiu223/Kikitori/releases) 下载 `Kikitori-x.y.z-win-x64.zip`，解压到任意位置（路径里最好不要有特殊字符）。
-2. 双击 `Kikitori.exe`。第一次运行会自动下载语音识别模型（约 3GB），请耐心等待。
-   - 如果访问不了 HuggingFace，可以先设置系统环境变量 `HF_ENDPOINT=https://hf-mirror.com` 再启动。
+1. 到 [Releases](https://github.com/biubiu223/Kikitori/releases) 下载安装包 `Kikitori-x.y.z-setup.exe` 运行安装（不需要管理员权限）；或者下载免安装版 `Kikitori-x.y.z-win-x64.zip` 解压后双击 `Kikitori.exe`。
+2. 第一次运行会自动下载显卡运行库（约 1.3GB）和语音识别模型（约 3GB），首页会显示进度，只需下载一次。
+   - 下载源默认「自动」，会自动选择国内镜像或国外官方源中较快的一个；也可以在「语音识别」页手动切换。
 3. 在「翻译」页填写 API Key（DeepSeek 在 <https://platform.deepseek.com/api_keys> 申请），点「测试连接」确认可用。Key 用 Windows 账户加密后只保存在本机。
 4. 回到「首页」选择说话语言和翻译语言，打开直播即可。
 
