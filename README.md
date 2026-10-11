@@ -78,9 +78,9 @@ Whisper 约占 4GB 显存，`qwen3:8b` 约 6GB，16GB 显卡可以同时运行�
 ```powershell
 # 1. Python 环境：建在仓库根目录
 python -m venv .venv
-.venv\Scripts\python.exe -m pip install -r engine\requirements.txt -r engine\requirements-build.txt
+.venv\Scripts\python.exe -m pip install -r engine\requirements.txt -r engine\requirements-build.txt -c engine\constraints.txt
 #    想用源码模式在 GPU 上调试引擎，再装 NVIDIA 运行库（约 1.5GB；打包构建不需要）
-.venv\Scripts\python.exe -m pip install -r engine\requirements-cuda.txt
+.venv\Scripts\python.exe -m pip install -r engine\requirements-cuda.txt -c engine\constraints.txt
 
 # 2. 一键构建：打包引擎 + 发布界面 + 组装到 dist\Kikitori\（加 -Zip 生成免安装压缩包，加 -Installer 生成安装程序，需要 Inno Setup 6）
 powershell -ExecutionPolicy Bypass -File build.ps1

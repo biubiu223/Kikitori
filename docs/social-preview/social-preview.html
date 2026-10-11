@@ -1,0 +1,140 @@
+<!doctype html>
+<!--
+  GitHub 社交预览图（1280×640）的源文件。重新生成：
+    powershell -ExecutionPolicy Bypass -File docs\social-preview\render.ps1
+  输出 docs/images/social-preview.png，然后在仓库 Settings → General → Social preview 上传。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Kikitori social preview</title>
+<style>
+  :root {
+    --blue: #4f7bf7;
+    --violet: #8a5cf6;
+    --bg: #0d1020;
+    --text: #f4f6ff;
+    --muted: #a9b2cf;
+    --ja: #aab4c3;
+    --partial: #7fb0ff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1280px; height: 640px; overflow: hidden; }
+  body {
+    position: relative;
+    background:
+      radial-gradient(900px 520px at -8% -12%, rgba(79,123,247,.38), transparent 62%),
+      radial-gradient(760px 560px at 112% 118%, rgba(138,92,246,.42), transparent 60%),
+      linear-gradient(160deg, #11152a 0%, var(--bg) 55%, #0b0d19 100%);
+    color: var(--text);
+    font-family: "Microsoft YaHei UI", "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  }
+  /* 细网格，增加一点质感 */
+  body::before {
+    content: ""; position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+    background-size: 40px 40px;
+    mask-image: radial-gradient(ellipse at 30% 40%, #000 30%, transparent 75%);
+  }
+
+  /* ---------- 左侧：品牌 ---------- */
+  .brand { position: absolute; left: 80px; top: 92px; width: 560px; }
+  .logo { width: 104px; height: 104px; border-radius: 26px; display: block;
+          box-shadow: 0 18px 50px rgba(95,110,250,.45); }
+  .title { margin-top: 34px; display: flex; align-items: baseline; gap: 22px; }
+  .title .zh { font-size: 92px; font-weight: 800; letter-spacing: 4px; line-height: 1; }
+  .title .en {
+    font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif;
+    font-size: 50px; font-weight: 600; letter-spacing: .5px;
+    background: linear-gradient(90deg, #8fb0ff, #c3a6ff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tagline { margin-top: 26px; font-size: 30px; line-height: 1.5; color: #dfe4f7; font-weight: 600; }
+  .tagline span { color: var(--muted); font-weight: 400; }
+  .chips { margin-top: 30px; display: flex; flex-wrap: nowrap; gap: 10px; }
+  .chip {
+    font-size: 19px; padding: 8px 16px; border-radius: 999px; white-space: nowrap;
+    background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14);
+    color: #d9def0;
+  }
+  .chip b { color: #fff; font-weight: 700; }
+  .repo {
+    position: absolute; left: 80px; bottom: 46px;
+    font-family: "Cascadia Mono", "Consolas", monospace; font-size: 20px; color: #7f88a8;
+  }
+
+  /* ---------- 右侧：模拟直播画面 + 字幕条 ---------- */
+  .screen {
+    position: absolute; right: 64px; top: 78px; width: 540px; height: 484px;
+    border-radius: 22px; overflow: hidden;
+    background:
+      radial-gradient(260px 220px at 72% 30%, rgba(255,170,210,.55), transparent 70%),
+      radial-gradient(300px 260px at 22% 75%, rgba(120,200,255,.45), transparent 70%),
+      linear-gradient(150deg, #2a2f5c, #1a1d3a 60%, #141631);
+    border: 1px solid rgba(255,255,255,.12);
+    box-shadow: 0 30px 80px rgba(0,0,0,.55);
+  }
+  /* 直播画面氛围：柔和的彩色光斑 */
+  .blob { position: absolute; border-radius: 50%; filter: blur(28px); }
+  .b1 { left: 250px; top: 40px;  width: 240px; height: 240px; background: #ff9fc6; opacity: .75; }
+  .b2 { left: 40px;  top: 120px; width: 220px; height: 220px; background: #7fd0ff; opacity: .55; }
+  .b3 { left: 170px; top: 200px; width: 260px; height: 160px; background: #a98bff; opacity: .55; }
+  .b4 { left: 360px; top: 210px; width: 140px; height: 140px; background: #ffd27f; opacity: .35; }
+  .live {
+    position: absolute; left: 18px; top: 18px; z-index: 2;
+    font: 700 16px/1 "Segoe UI", sans-serif; letter-spacing: 1px;
+    background: #ff3b5c; color: #fff; padding: 7px 11px; border-radius: 6px;
+  }
+  .viewers {
+    position: absolute; left: 92px; top: 18px; z-index: 2;
+    font: 600 16px/1 "Segoe UI", sans-serif; color: #fff;
+    background: rgba(0,0,0,.45); padding: 7px 11px; border-radius: 6px;
+  }
+  /* 声波装饰 */
+  .wave { position: absolute; right: 22px; top: 22px; z-index: 2; display: flex; gap: 5px; align-items: center; height: 30px; }
+  .wave i { width: 5px; border-radius: 3px; background: rgba(255,255,255,.85); display: block; }
+
+  .overlay {
+    position: absolute; left: 18px; right: 18px; bottom: 18px; z-index: 3;
+    padding: 18px 22px 16px;
+    border-radius: 14px;
+    background: rgba(20,22,26,.88);
+    border: 1px solid rgba(255,255,255,.10);
+    box-shadow: 0 10px 30px rgba(0,0,0,.45);
+  }
+  .ja { font-family: "Yu Gothic UI", "Meiryo UI", sans-serif; font-size: 18px; color: var(--ja); }
+  .zh { font-size: 30px; font-weight: 700; color: #fff; margin: 4px 0 12px; }
+  .zh:last-of-type { margin-bottom: 10px; }
+  .partial { font-family: "Yu Gothic UI", "Meiryo UI", sans-serif; font-size: 18px; color: var(--partial); }
+</style>
+</head>
+<body>
+  <section class="brand">
+    <img class="logo" src="../../app/Kikitori/Assets/logo.png" alt="">
+    <div class="title"><span class="zh">听译</span><span class="en">Kikitori</span></div>
+    <p class="tagline">看日 V 直播听不懂？<br><span>电脑里放什么，就实时翻译什么。</span></p>
+    <div class="chips">
+      <span class="chip"><b>Whisper</b> 本地识别</span>
+      <span class="chip"><b>DeepSeek</b> 翻译</span>
+      <span class="chip"><b>WinUI 3</b> 悬浮字幕</span>
+    </div>
+  </section>
+  <div class="repo">github.com/biubiu223/Kikitori</div>
+
+  <section class="screen">
+    <span class="live">LIVE</span>
+    <span class="viewers">● 12,438</span>
+    <div class="wave"><i style="height:10px"></i><i style="height:22px"></i><i style="height:30px"></i><i style="height:16px"></i><i style="height:26px"></i><i style="height:12px"></i></div>
+    <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div class="blob b4"></div>
+    <div class="overlay">
+      <div class="ja">スパチャありがとう！マジで嬉しい</div>
+      <div class="zh">谢谢 SC！真的超开心的</div>
+      <div class="ja">え、待って、これ怖すぎない？</div>
+      <div class="zh">诶等等，这也太吓人了吧？</div>
+      <div class="partial">次はホラーゲームやろうかな …</div>
+    </div>
+  </section>
+</body>
+</html>

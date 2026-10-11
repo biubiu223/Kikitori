@@ -1,0 +1,39 @@
+# 锁定版本：本地完整测试通过时的全部依赖（含间接依赖）。
+# requirements*.txt 只写“需要什么”，这里写“具体用哪个版本”，保证本地和 GitHub Actions 构建出来的东西一致。
+# 安装时加 -c：
+#     .venv\Scripts\python.exe -m pip install -r engine\requirements.txt -r engine\requirements-build.txt -c engine\constraints.txt
+# 升级依赖：在 .venv 里升级并跑完测试后，用 pip freeze 重新生成本文件。
+altgraph==0.17.5
+anyio==4.15.1
+av==18.1.0
+certifi==2026.7.22
+click==8.5.0
+colorama==0.4.6
+ctranslate2==4.8.2
+faster-whisper==1.2.1
+filelock==4.0.12
+flatbuffers==25.12.19
+fsspec==2026.9.0
+h11==0.16.0
+hf-xet==1.7.0
+httpcore==1.0.9
+httpx==0.28.1
+huggingface_hub==1.33.0
+idna==3.20
+numpy==2.5.3
+nvidia-cublas-cu12==12.9.2.10
+nvidia-cuda-nvrtc-cu12==12.9.86
+nvidia-cudnn-cu12==9.27.0.42
+onnxruntime==1.30.0
+packaging==26.3
+pefile==2024.8.26
+protobuf==7.36.2
+PyAudioWPatch==0.2.12.9
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.8
+pywin32-ctypes==0.2.3
+PyYAML==6.0.3
+soxr==1.1.0
+tokenizers==0.23.2
+tqdm==4.70.1
+typing_extensions==4.16.0

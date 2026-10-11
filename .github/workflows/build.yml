@@ -50,6 +50,7 @@ jobs:
           cache-dependency-path: |
             engine/requirements.txt
             engine/requirements-build.txt
+            engine/constraints.txt
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -60,7 +61,9 @@ jobs:
         run: |
           python -m venv .venv
           .venv\Scripts\python.exe -m pip install --upgrade pip
-          .venv\Scripts\python.exe -m pip install -r engine/requirements.txt -r engine/requirements-build.txt
+          # -c：按 constraints.txt 锁定的版本安装，和本地测试过的完全一致
+          .venv\Scripts\python.exe -m pip install -r engine/requirements.txt -r engine/requirements-build.txt -c engine/constraints.txt
+          .venv\Scripts\python.exe -m pip freeze
 
       - name: Inno Setup
         shell: pwsh
