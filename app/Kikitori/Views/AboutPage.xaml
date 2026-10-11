@@ -1,0 +1,60 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Kikitori.Views.AboutPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Kikitori.Controls"
+    xmlns:tk="using:CommunityToolkit.WinUI.Controls"
+    NavigationCacheMode="Required">
+
+    <ScrollViewer Style="{StaticResource PageScrollerStyle}">
+        <controls:PageColumn><StackPanel Padding="36,20,36,36">
+            <TextBlock Text="关于" Style="{StaticResource PageTitleStyle}" />
+
+            <Border Style="{StaticResource CardBorderStyle}" Padding="20">
+                <Grid ColumnSpacing="20">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Image x:Name="LogoImage" Width="72" Height="72" VerticalAlignment="Top" />
+                    <StackPanel Grid.Column="1" Spacing="4">
+                        <TextBlock Text="听译 Kikitori" Style="{StaticResource SubtitleTextBlockStyle}" />
+                        <TextBlock Text="实时识别直播语音，翻译成中文字幕显示在屏幕上。" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="VersionText" Margin="0,6,0,0" IsTextSelectionEnabled="True" />
+                        <TextBlock x:Name="EngineText" IsTextSelectionEnabled="True" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,6,0,0">
+                            <TextBlock Text="许可证 GPL-3.0 · 项目地址" VerticalAlignment="Center" />
+                            <HyperlinkButton x:Name="ProjectLink" Content="https://github.com/biubiu223/Kikitori"
+                                             NavigateUri="https://github.com/biubiu223/Kikitori" Padding="4,2" />
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <TextBlock Text="文件夹" Style="{StaticResource SectionHeaderStyle}" />
+            <StackPanel Spacing="{StaticResource SettingsCardSpacing}">
+                <tk:SettingsCard x:Name="LogsCard" Header="日志文件夹" Description="engine.log：识别引擎的输出；app.log：界面日志。出问题时把它们发给开发者"
+                                 IsClickEnabled="True" Click="OpenLogs_Click">
+                    <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE9F9;" /></tk:SettingsCard.HeaderIcon>
+                    <tk:SettingsCard.ActionIcon><FontIcon Glyph="&#xE8A7;" /></tk:SettingsCard.ActionIcon>
+                </tk:SettingsCard>
+                <tk:SettingsCard x:Name="DataCard" Header="数据文件夹" IsClickEnabled="True" Click="OpenData_Click">
+                    <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE8B7;" /></tk:SettingsCard.HeaderIcon>
+                    <tk:SettingsCard.ActionIcon><FontIcon Glyph="&#xE8A7;" /></tk:SettingsCard.ActionIcon>
+                </tk:SettingsCard>
+                <tk:SettingsCard x:Name="RecordsCard" Header="字幕记录" Description="每次监听的原文和译文都会自动保存成文本文件"
+                                 IsClickEnabled="True" Click="OpenRecords_Click">
+                    <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE8A5;" /></tk:SettingsCard.HeaderIcon>
+                    <tk:SettingsCard.ActionIcon><FontIcon Glyph="&#xE8A7;" /></tk:SettingsCard.ActionIcon>
+                </tk:SettingsCard>
+            </StackPanel>
+
+            <TextBlock Text="使用说明" Style="{StaticResource SectionHeaderStyle}" />
+            <Border Style="{StaticResource CardBorderStyle}" Padding="20,16">
+                <StackPanel x:Name="HelpPanel" Spacing="10" />
+            </Border>
+        </StackPanel></controls:PageColumn>
+    </ScrollViewer>
+</Page>

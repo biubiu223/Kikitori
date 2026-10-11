@@ -1,0 +1,81 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>Kikitori</RootNamespace>
+    <AssemblyName>Kikitori</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+
+    <!-- WinUI 3，免安装（unpackaged），Windows App SDK 和 .NET 运行库都放在程序目录里 -->
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <!-- 自己写 Main（单实例：AppInstance.FindOrRegisterForKey） -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <!-- 托管程序集的附属资源只留中英文 -->
+    <SatelliteResourceLanguages>zh-Hans;zh-Hant;en</SatelliteResourceLanguages>
+    <DefaultLanguage>zh-CN</DefaultLanguage>
+
+    <Product>听译 Kikitori</Product>
+    <AssemblyTitle>听译</AssemblyTitle>
+    <Description>听译 Kikitori：实时识别直播语音并翻译成中文字幕</Description>
+    <Copyright>GPL-3.0 · https://github.com/biubiu223/Kikitori</Copyright>
+    <Version>1.0.0</Version>
+    <NoWarn>$(NoWarn);CA1416;MVVMTK0045</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\app.ico;Assets\logo.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.9169" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.SettingsControls" Version="8.2.251219" />
+    <PackageReference Include="WinUIEx" Version="2.9.3" />
+    <PackageReference Include="H.NotifyIcon.WinUI" Version="2.3.2" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
+
+  <!--
+    Windows App SDK 自包含时会带上 80 多种语言的 Microsoft.ui.xaml.dll.mui（每种一个文件夹，SatelliteResourceLanguages 管不到）。
+    这里只保留英文、简体中文、繁体中文；其它语言 Windows 会自动回退到英文。
+    （WinUI 控件的文字，如“关闭导航”，在 .pri 资源里，不受影响。）
+  -->
+  <Target Name="KikitoriTrimWinUIMuiLanguages"
+          AfterTargets="AddMicrosoftWindowsAppSDKPayloadFilesFromComponents;AddMicrosoftWindowsAppSDKPayloadFilesFromMsix">
+    <ItemGroup>
+      <_KtMuiDrop Include="@(None)"
+                  Condition="'%(None.Extension)' == '.mui' and
+                             !$([System.String]::Copy('%(None.Link)').ToLowerInvariant().StartsWith('en-us\')) and
+                             !$([System.String]::Copy('%(None.Link)').ToLowerInvariant().StartsWith('zh-cn\')) and
+                             !$([System.String]::Copy('%(None.Link)').ToLowerInvariant().StartsWith('zh-tw\'))" />
+      <None Remove="@(_KtMuiDrop)" />
+    </ItemGroup>
+  </Target>
+
+  <!-- 免安装 WinUI 应用 dotnet publish 时不会带上编译后的 XAML（.xbf）和资源索引（.pri），这里补拷过去 -->
+  <Target Name="CopyWinUIResourcesToPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <_WinUIRes Include="$(OutDir)**\*.xbf" />
+      <_WinUIRes Include="$(OutDir)*.pri" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_WinUIRes)" DestinationFiles="@(_WinUIRes->'$(PublishDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

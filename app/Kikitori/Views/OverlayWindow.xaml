@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="Kikitori.Views.OverlayWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Kikitori.Controls"
+    Title="听译 字幕条">
+
+    <!-- 窗口本身全透明（TransparentTintBackdrop），只有这块圆角面板有半透明深色背景；文字不透明 -->
+    <Grid x:Name="Root" Background="Transparent" RequestedTheme="Dark"
+          PointerPressed="Root_PointerPressed" PointerMoved="Root_PointerMoved"
+          PointerReleased="Root_PointerReleased" PointerCaptureLost="Root_PointerCaptureLost"
+          RightTapped="Root_RightTapped">
+        <Border x:Name="Panel" VerticalAlignment="Bottom" CornerRadius="10" BorderThickness="1" Padding="18,0,18,12">
+            <StackPanel>
+                <!-- 顶部一行小字：临时状态 / notice -->
+                <TextBlock x:Name="StatusText" Height="20" FontSize="12" Margin="-8,3,0,0" TextTrimming="CharacterEllipsis"
+                           FontFamily="Microsoft YaHei UI, Segoe UI" />
+                <StackPanel x:Name="Lines" Spacing="8" />
+                <TextBlock x:Name="Placeholder" Text="（等待声音…  右键打开菜单）" FontSize="14" Foreground="#6B7380"
+                           FontFamily="Microsoft YaHei UI, Segoe UI" Margin="0,2,0,0" />
+            </StackPanel>
+        </Border>
+        <controls:ResizeGrip x:Name="Grip" Width="22" Height="22" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                             PointerPressed="Grip_PointerPressed" />
+    </Grid>
+</Window>
