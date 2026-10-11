@@ -3,11 +3,16 @@
 # 用法（在任意目录）：
 #   powershell -ExecutionPolicy Bypass -File packaging\build_engine.ps1
 #   powershell -ExecutionPolicy Bypass -File packaging\build_engine.ps1 -Python D:\path\to\python.exe
+#   powershell -ExecutionPolicy Bypass -File packaging\build_engine.ps1 -BundleCuda     完整构建（开发用）
 #
+# 默认是精简构建：不带 NVIDIA 运行库（约 2GB），首次用显卡时由引擎下载（见 docs/protocol.md 第 7 节）。
+# -BundleCuda：把 .venv 里的 NVIDIA DLL 一起打包，不需要下载。
 # 默认用仓库根目录下 .venv 里的 Python（需要已安装 requirements.txt 和 pyinstaller）。
 # 中间文件放在 build\pyinstaller-work\，都在 build\ 下，可以整个忽略/删除。
+# 显卡运行库清单 packaging\cuda_manifest.json 由 packaging\make_cuda_manifest.py 生成（升级 CUDA 包后重新生成）。
 param(
     [string]$Python = "",
+    [switch]$BundleCuda,
     [switch]$SkipSmokeTest
 )
 $ErrorActionPreference = "Stop"
@@ -29,7 +34,13 @@ if ($LASTEXITCODE -ne 0) {
     if ($LASTEXITCODE -ne 0) { throw "安装 PyInstaller 失败" }
 }
 
-Write-Host "== 打包（第一次大约 3~5 分钟，CUDA DLL 有 2GB 多）"
+if ($BundleCuda) {
+    Write-Host "== 打包（完整构建：带 NVIDIA 运行库，2GB 多）"
+    $env:KIKITORI_BUNDLE_CUDA = "1"
+} else {
+    Write-Host "== 打包（精简构建：不带 NVIDIA 运行库）"
+    $env:KIKITORI_BUNDLE_CUDA = "0"
+}
 $env:PYTHONDONTWRITEBYTECODE = "1"
 & $Python -m PyInstaller --noconfirm --clean --log-level WARN --distpath $Dist --workpath $Work $Spec
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller 打包失败" }

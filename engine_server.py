@@ -54,6 +54,8 @@ _PROTO_FD = _take_over_stdout()
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+# 模型下载不用 Xet 协议（镜像站不一定支持；走普通 HTTP 时才能在进度回调里中止下载）
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 import json  # noqa: E402
 import math  # noqa: E402
@@ -157,6 +159,7 @@ def default_config() -> dict:
         },
         "vad": {"threshold": 0.5, "min_silence_ms": 500, "max_segment_s": 8.0, "min_speech_ms": 250},
         "audio": {"device": "", "file": ""},
+        "download": {"source": "auto"},
         "glossary": {},
         "log_dir": default_log_dir(),
     }
@@ -245,6 +248,11 @@ def normalize_config(raw: dict) -> tuple[dict, list[str]]:
         warnings.append(f"识别设备「{a['device']}」无效，已改用 cuda")
         a["device"] = "cuda"
     a["compute_type"] = a["compute_type"].strip() or "float16"
+    d = cfg["download"]
+    src = d["source"].strip().lower()
+    d["source"] = src if src in ("auto", "official", "china") else "auto"
+    if d["source"] != src:
+        warnings.append(f"下载源「{src}」无效，已改用自动选择")
     a["beam_size"] = min(10, max(1, a["beam_size"]))
     a["partial_interval"] = min(10.0, max(0.3, a["partial_interval"]))
     t["context_lines"] = min(20, max(0, t["context_lines"]))
@@ -354,6 +362,7 @@ class Server:
         self._next_id = 1                    # 句子编号：整个进程内单调递增，start/stop 不重置
         self._log_paths: dict[str, str] = {}
         self._exiting = False
+        self._installer = None               # 正在下载显卡运行库的 RuntimeInstaller（stop 时中止）
 
     # ------------------------------------------------------------------
     def next_id(self) -> int:
@@ -430,6 +439,7 @@ class Server:
             if old is None:                    # 刚 stop 过的会话，线程可能还没完全退出
                 old, self._stopped = self._stopped, None
             self.last_cfg = cfg
+        self._cancel_download()     # 正在下载运行库的话先中止（新的 start 会接着下）
         if old is not None:
             log("用新配置重启：先停止当前的监听")
             old.stop()
@@ -456,12 +466,20 @@ class Server:
                 gated.status("error", f"语音识别组件加载失败：{e}", "error")
                 return
             acfg = cfg["asr"]
+            if acfg["device"] == "auto":
+                from livetrans.cuda_runtime import has_nvidia_driver
+
+                acfg["device"] = "cuda" if has_nvidia_driver() else "cpu"
+                log(f"识别设备 auto → {acfg['device']}")
             key = (acfg["model"], acfg["device"], acfg["compute_type"])
             src_lang = acfg["language"]
             tgt_lang = cfg["translate"]["target_language"]
             hotwords = " ".join(cfg["glossary"].keys()) or None
 
             if self.asr is None or self.asr_key != key:
+                # 显卡模式：先确认显卡运行库就绪（没有就下载）。CPU 模式不需要。
+                if acfg["device"] == "cuda" and not self._ensure_cuda_runtime(gen, cfg, gated):
+                    return
                 if self.asr is not None:
                     log(f"模型参数变了 {self.asr_key} → {key}，重新加载")
                     self.asr, self.asr_key = None, None
@@ -469,8 +487,13 @@ class Server:
 
                     gc.collect()   # 先把旧模型从显存里放掉
                 try:
-                    asr = eng.load_transcriber(acfg, src_lang, hotwords, gated)
+                    asr = eng.load_transcriber(acfg, src_lang, hotwords, gated,
+                                               source=cfg["download"]["source"],
+                                               cancelled=lambda: not self._alive(gen))
                 except Exception as e:
+                    if not self._alive(gen):
+                        log(f"加载/下载模型时被中止：{type(e).__name__}")
+                        return
                     traceback.print_exc()
                     gated.status("error", eng.model_error_message(e, acfg), "error")
                     return
@@ -500,12 +523,80 @@ class Server:
                 self.session = session
             session.boot()
 
+    def _ensure_cuda_runtime(self, gen: int, cfg: dict, gated) -> bool:
+        """显卡模式用之前：确认 NVIDIA 运行库能用，没有就下载（docs/protocol.md 第 7.1 节）。失败时已经发了 status error。"""
+        from livetrans import cuda_runtime, cuda_setup
+
+        if not cuda_runtime.has_nvidia_driver():
+            gated.status("error", "没有检测到 NVIDIA 显卡（或驱动），请在 设置 → 语音识别 里把设备改成 CPU", "error")
+            return False
+        kind, dirs = cuda_setup.find_cuda_dirs()
+        if not kind:
+            src_mode = cfg["download"]["source"]
+            log(f"没有找到显卡运行库，开始下载到 {cuda_setup.runtime_dir()}（下载源：{src_mode}）")
+            t0 = time.time()
+
+            last = [time.monotonic()]
+
+            def emit(message, progress):
+                # 协议：下载期间 downloading_runtime 最多每 500ms 一次
+                wait = 0.5 - (time.monotonic() - last[0])
+                if wait > 0:
+                    time.sleep(wait)
+                last[0] = time.monotonic()
+                gated.status("downloading_runtime", message, "info", progress=progress)
+
+            def progress(done, total, source):
+                emit(f"正在下载显卡运行库（只需一次）：{done / 2**20:.0f} / {total / 2**20:.0f} MB · {source}",
+                     round(min(0.999, done / total), 3) if total else 0.0)
+
+            gated.status("downloading_runtime", "正在准备下载显卡运行库（只需一次）…", "info", progress=0.0)
+            inst = cuda_runtime.RuntimeInstaller(src_mode, progress)
+            with self._lock:
+                if not self._alive(gen):
+                    inst.close()
+                    return False
+                self._installer = inst
+            try:
+                used = inst.run()
+            except cuda_runtime.Cancelled:
+                log("显卡运行库下载已中止（已下载的部分保留，下次接着下）")
+                return False
+            except cuda_runtime.InstallError as e:
+                log("显卡运行库安装失败：", e)
+                gated.status("error", str(e), "error")
+                return False
+            finally:
+                with self._lock:
+                    self._installer = None
+                inst.close()
+            log(f"显卡运行库下载完成（{time.time() - t0:.0f}s，{used}）")
+            emit(f"显卡运行库已就绪 · {used}", 1.0)
+            kind, dirs = cuda_setup.find_cuda_dirs()
+            if not kind:
+                gated.status("error", "显卡运行库安装后检查不通过，请重试，或者改用 CPU", "error")
+                return False
+        cuda_setup.add_cuda_dll_dirs()
+        err = cuda_setup.preload_cuda_dlls()
+        if err:
+            gated.status("error", f"显卡运行库加载失败：{err}。请重新启动程序后重试，或者改用 CPU", "error")
+            return False
+        log(f"显卡运行库：{kind} {dirs[0]}{' 等' if len(dirs) > 1 else ''}")
+        return True
+
+    def _cancel_download(self):
+        inst = self._installer
+        if inst is not None:
+            log("中止正在进行的显卡运行库下载")
+            inst.cancel()
+
     def cmd_stop(self, msg=None):
         with self._lock:
             self._gen += 1
             s, self.session = self.session, None
             if s is not None:
                 self._stopped = s
+        self._cancel_download()
         if s is not None:
             s.stop()
         self.sink.status("stopped", "已停止")
@@ -660,6 +751,7 @@ class Server:
             with self._lock:
                 self._gen += 1
                 s, self.session = self.session, None
+            self._cancel_download()
             if s is not None:
                 s.stop()
         except Exception:
@@ -706,12 +798,15 @@ def _preload():
 def main():
     proto = Protocol(_PROTO_FD)
     try:
-        # 必须在 import faster_whisper 之前
-        from livetrans.cuda_setup import add_cuda_dll_dirs
+        # 已经有的显卡运行库先加进 DLL 搜索路径（没有也没关系：import ctranslate2 / faster_whisper 不需要它，
+        # 第一次用显卡之前 _ensure_cuda_runtime 会下载并再加一次）
+        from livetrans.cuda_setup import add_cuda_dll_dirs, find_cuda_dirs, runtime_dir
 
         dirs = add_cuda_dll_dirs()
+        kind = find_cuda_dirs()[0]
         log(f"Kikitori 引擎 {VERSION}（Python {sys.version.split()[0]}"
-            f"{'，打包版' if getattr(sys, 'frozen', False) else ''}），CUDA DLL 目录 {len(dirs)} 个")
+            f"{'，打包版' if getattr(sys, 'frozen', False) else ''}），显卡运行库："
+            + (f"{kind}（{len(dirs)} 个目录）" if kind else f"还没有（首次用显卡时下载到 {runtime_dir()}）"))
         import livetrans.audio  # noqa: F401
         import livetrans.engine  # noqa: F401
         try:   # 很轻，先导入：免得 list_devices 和 start 在两个线程里同时导入（失败了到用的时候再报错）

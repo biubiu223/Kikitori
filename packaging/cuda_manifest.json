@@ -1,0 +1,52 @@
+{
+  "format": 1,
+  "description": "Kikitori 显卡运行库清单（NVIDIA 官方 wheel，固定版本）。由 packaging/make_cuda_manifest.py 生成，不要手改。",
+  "packages": [
+    {
+      "name": "nvidia-cublas-cu12",
+      "version": "12.9.2.10",
+      "filename": "nvidia_cublas_cu12-12.9.2.10-py3-none-win_amd64.whl",
+      "path": "packages/20/e2/fc9a0e985249d873150276d5afb02e39a66817fedbf1a385724393e505ed/nvidia_cublas_cu12-12.9.2.10-py3-none-win_amd64.whl",
+      "size": 553162896,
+      "sha256": "623f43027d40d44ceadf0043f002bd25cf353e8f13ce90b9a87057019f560661",
+      "dlls": {
+        "cublas64_12.dll": 102518272,
+        "cublasLt64_12.dll": 668673536,
+        "nvblas64_12.dll": 334848
+      }
+    },
+    {
+      "name": "nvidia-cudnn-cu12",
+      "version": "9.27.0.42",
+      "filename": "nvidia_cudnn_cu12-9.27.0.42-py3-none-win_amd64.whl",
+      "path": "packages/aa/38/f856579877f7c1c5066e61182e7de7bc27bf35a78c8d1b0fa592e6985bc4/nvidia_cudnn_cu12-9.27.0.42-py3-none-win_amd64.whl",
+      "size": 743068852,
+      "sha256": "06e9b0026f3bad97d2b58666330fabec04fe1672f776661ecb0ce0029c27f142",
+      "dlls": {
+        "cudnn64_9.dll": 270448,
+        "cudnn_adv64_9.dll": 270983792,
+        "cudnn_cnn64_9.dll": 2997872,
+        "cudnn_engines_precompiled64_9.dll": 528169072,
+        "cudnn_engines_runtime_compiled64_9.dll": 45452912,
+        "cudnn_engines_tensor_ir64_9.dll": 156272,
+        "cudnn_ext64_9.dll": 130160,
+        "cudnn_graph64_9.dll": 99919472,
+        "cudnn_heuristic64_9.dll": 94795376,
+        "cudnn_ops64_9.dll": 105686640
+      }
+    },
+    {
+      "name": "nvidia-cuda-nvrtc-cu12",
+      "version": "12.9.86",
+      "filename": "nvidia_cuda_nvrtc_cu12-12.9.86-py3-none-win_amd64.whl",
+      "path": "packages/52/de/823919be3b9d0ccbf1f784035423c5f18f4267fb0123558d58b813c6ec86/nvidia_cuda_nvrtc_cu12-12.9.86-py3-none-win_amd64.whl",
+      "size": 76408187,
+      "sha256": "72972ebdcf504d69462d3bcd67e7b81edd25d0fb85a2c46d3ea3517666636349",
+      "dlls": {
+        "nvrtc-builtins64_129.dll": 7217664,
+        "nvrtc64_120_0.alt.dll": 89899520,
+        "nvrtc64_120_0.dll": 89832960
+      }
+    }
+  ]
+}

@@ -6,9 +6,10 @@
 
 要点：
   - console=True（界面用 CreateNoWindow 启动，并重定向 stdin/stdout/stderr）
-  - nvidia cuBLAS / cuDNN / NVRTC 的 DLL 按原来的目录结构放到 _internal/nvidia/<包>/bin，
-    livetrans/cuda_setup.py 在冻结模式下从 sys._MEIPASS 找它们
-    （作为 datas 收集：这些 DLL 有 2GB，不需要 PyInstaller 做依赖分析）
+  - 默认是精简构建：不带 NVIDIA cuBLAS / cuDNN / NVRTC（约 2GB），只带清单 cuda_manifest.json，
+    首次用显卡时由引擎下载到 %LOCALAPPDATA%\\Kikitori\\runtime\\cuda12（livetrans/cuda_runtime.py）
+  - KIKITORI_BUNDLE_CUDA=1 时做完整构建：DLL 按原来的目录结构放到 _internal/nvidia/<包>/bin
+    （作为 datas 收集：不需要 PyInstaller 做依赖分析）
   - ctranslate2 的 DLL 留在 _internal/ctranslate2/（它的 __init__ 会加载自己目录下的所有 *.dll）
   - 不打包 tkinter（悬浮字幕版 overlay.py 不属于引擎进程）
 """
@@ -33,20 +34,29 @@ datas += collect_data_files("faster_whisper")
 # ---- CTranslate2 的 DLL（ctranslate2.dll、cudnn64_9.dll、libiomp5md.dll） ----
 binaries += collect_dynamic_libs("ctranslate2")
 
-# ---- nvidia cublas / cudnn / cuda_nvrtc 的 bin 目录 ----
-_nv = importlib.util.find_spec("nvidia")
-if _nv is None or not _nv.submodule_search_locations:
-    raise SystemExit("找不到 nvidia-cublas-cu12 / nvidia-cudnn-cu12，请先在 .venv 里安装 requirements.txt")
-_nv_count = 0
-for _base in _nv.submodule_search_locations:
-    for _bin in sorted(glob.glob(os.path.join(_base, "*", "bin"))):
-        _pkg = os.path.basename(os.path.dirname(_bin))
-        for _dll in sorted(glob.glob(os.path.join(_bin, "*.dll"))):
-            datas.append((_dll, f"nvidia/{_pkg}/bin"))
-            _nv_count += 1
-if _nv_count == 0:
-    raise SystemExit("nvidia/*/bin 里没有找到 DLL")
-print(f"[engine.spec] 收集 nvidia DLL {_nv_count} 个")
+# ---- 显卡运行库清单：首次用显卡时引擎按它下载 NVIDIA 运行库（docs/protocol.md 第 7.1 节） ----
+_manifest = os.path.join(SPEC_DIR, "cuda_manifest.json")
+if not os.path.isfile(_manifest):
+    raise SystemExit("缺少 packaging/cuda_manifest.json，请先运行 packaging/make_cuda_manifest.py")
+datas.append((_manifest, "."))
+
+# ---- nvidia cublas / cudnn / cuda_nvrtc 的 DLL：默认不打包（精简构建）----
+# 设置环境变量 KIKITORI_BUNDLE_CUDA=1（build_engine.ps1 -BundleCuda）可以做“完整构建”（开发用）：
+# DLL 按原目录结构放到 _internal/nvidia/<包>/bin，cuda_setup.py 会优先用它们，不再下载
+if os.environ.get("KIKITORI_BUNDLE_CUDA") == "1":
+    _nv = importlib.util.find_spec("nvidia")
+    if _nv is None or not _nv.submodule_search_locations:
+        raise SystemExit("找不到 nvidia-cublas-cu12 / nvidia-cudnn-cu12，请先在 .venv 里安装 requirements.txt")
+    _nv_count = 0
+    for _base in _nv.submodule_search_locations:
+        for _bin in sorted(glob.glob(os.path.join(_base, "*", "bin"))):
+            _pkg = os.path.basename(os.path.dirname(_bin))
+            for _dll in sorted(glob.glob(os.path.join(_bin, "*.dll"))):
+                datas.append((_dll, f"nvidia/{_pkg}/bin"))
+                _nv_count += 1
+    print(f"[engine.spec] 完整构建：收集 nvidia DLL {_nv_count} 个")
+else:
+    print("[engine.spec] 精简构建：不打包 NVIDIA 运行库（首次用显卡时下载）")
 
 # ---- onnxruntime（faster_whisper.vad 里才 import，静态分析看不到）----
 hiddenimports += ["onnxruntime"]
@@ -61,6 +71,7 @@ hiddenimports += [
     "livetrans",
     "livetrans.asr",
     "livetrans.audio",
+    "livetrans.cuda_runtime",
     "livetrans.cuda_setup",
     "livetrans.engine",
     "livetrans.languages",

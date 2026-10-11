@@ -7,28 +7,40 @@
 可选：
     --skip-live        不测真实录音（系统声音）
     --skip-reload      不测“换模型参数后重新加载”
+    --skip-main        不跑主流程（只跑下面选中的专项）
     --download-test    额外测一次“首次下载模型”（用临时缓存目录下载 tiny 模型，测完删除）
+    --runtime-test     显卡运行库下载专项（本地 HTTP 服务器模拟镜像）：全新下载、不重复下载、断点续传、
+                       sha 不对重下、自动换源、下载中 stop、CPU 模式不下载
+    --runtime-real     显卡运行库真实下载一次（auto 模式，从真实的 PyPI / 镜像下载 1.3GB）
+    --keep-runtime     测完不删除 build/test/ 下的运行库目录（每个 2GB 多）
 
 翻译一律用 tools/mock_llm.py（脚本自己启动/关闭）；DeepSeek 只测“没填 Key”的失败路径（会从子进程环境里去掉 DEEPSEEK_API_KEY）。
-所有生成物（引擎 stderr 日志、字幕记录、mock 请求记录）都放在 build/test/ 下。
+所有生成物（引擎 stderr 日志、字幕记录、mock 请求记录、运行库目录）都放在 build/test/ 下；
+引擎的运行库目录一律用 KIKITORI_RUNTIME_DIR 指到 build/test/ 下，不碰 %LOCALAPPDATA%\\Kikitori。
+精简版 exe 自己不带 CUDA：测试时用本地镜像（wheel 缓存在 build/cuda-wheels/，第一次会从网上下载 1.3GB）给它装运行库。
 """
 
 import argparse
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
 import sys
 import threading
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent          # tools/
 ROOT = HERE.parent                              # 仓库根目录（engine_server.py 所在目录）
 TESTDATA = HERE / "testdata"
+MANIFEST = ROOT / "packaging" / "cuda_manifest.json"
+WHEEL_CACHE = ROOT / "build" / "cuda-wheels"
 MOCK_PORT = 8765
 MOCK_URL = f"http://127.0.0.1:{MOCK_PORT}/v1"
+MIRROR_PORT = 8767
 BOM = b"\xef\xbb\xbf"
 CREATE_NO_WINDOW = 0x08000000
 
@@ -142,7 +154,11 @@ class Engine:
 
     def kill(self):
         if self.proc.poll() is None:
-            self.proc.kill()
+            if sys.platform == "win32":     # 连子进程一起结束（源码模式下 venv 的 python.exe 会再起一个子进程）
+                subprocess.run(["taskkill", "/T", "/F", "/PID", str(self.proc.pid)],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                self.proc.kill()
             self.proc.wait(5)
         self._log.close()
 
@@ -202,7 +218,8 @@ class MockLLM:
 
 
 def make_config(out_dir: Path, *, audio_file: str = "", language: str = "zh", target: str = "zh-Hans",
-                provider: str = "openai_compatible", compute_type: str | None = None, model: str | None = None):
+                provider: str = "openai_compatible", compute_type: str | None = None, model: str | None = None,
+                device: str | None = None, source: str | None = None):
     cfg = {
         "translate": {
             "provider": provider,
@@ -217,6 +234,10 @@ def make_config(out_dir: Path, *, audio_file: str = "", language: str = "zh", ta
         cfg["asr"]["compute_type"] = compute_type
     if model:
         cfg["asr"]["model"] = model
+    if device:
+        cfg["asr"]["device"] = device
+    if source:
+        cfg["download"] = {"source": source}
     return cfg
 
 
@@ -571,32 +592,406 @@ def run_eof_suite(cmd, env, out_dir: Path):
 
 
 def run_download_suite(cmd, env, out_dir: Path):
-    """用临时的 HuggingFace 缓存目录下载 tiny 模型，检查 downloading_model 和进度。测完删除临时缓存。"""
-    cache = out_dir / "hf-cache-tmp"
-    shutil.rmtree(cache, ignore_errors=True)
-    env = dict(env, HF_HUB_CACHE=str(cache))
-    eng = Engine(cmd, out_dir / "engine_download.stderr.log", env, "download")
+    """用临时的 HuggingFace 缓存目录下载 tiny 模型，检查 downloading_model、进度和下载源（官方 / hf-mirror）。
+    测完删除临时缓存。"""
+    for source, host in (("official", "huggingface.co"), ("china", "hf-mirror.com")):
+        cache = out_dir / f"hf-cache-tmp-{source}"
+        shutil.rmtree(cache, ignore_errors=True)
+        env2 = dict(env, HF_HUB_CACHE=str(cache))
+        eng = Engine(cmd, out_dir / f"engine_download_{source}.stderr.log", env2, f"download-{source}")
+        try:
+            eng.wait_status("idle", 60)
+            m = eng.mark()
+            t0 = time.time()
+            eng.send({"cmd": "start", "config": make_config(out_dir, audio_file=str(TESTDATA / "tts_en.wav"),
+                                                            language="en", model="tiny", source=source)})
+            eng.wait_status("listening", 900, m)
+            evs = eng.since(m)
+            dl = [e for e in evs if e.get("event") == "status" and e.get("state") == "downloading_model"]
+            check(dl, f"没有 downloading_model：{statuses(evs)}")
+            progress = [e.get("progress") for e in dl if "progress" in e]
+            check(progress == sorted(progress), f"下载进度不是递增的：{progress}")
+            check(any(host in e.get("message", "") for e in dl), f"下载源应该是 {host}：{dl[-1]}")
+            say(f"  ✓ 首次下载（{source} → {host}，{time.time() - t0:.0f}s）："
+                f"{' → '.join(dict.fromkeys(statuses(evs)))}；进度 {progress}")
+            eng.wait_for(lambda e: e.get("event") == "final", 60, m, " tiny 模型的 final")
+            say("  ✓ 下载的 tiny 模型能正常识别")
+            eng.send({"cmd": "shutdown"})
+            eng.proc.wait(5)
+            check(not eng.bad_lines, f"stdout 里有非 JSON 的行：{eng.bad_lines[:3]}")
+            eng.check_stderr_clean()
+        finally:
+            eng.kill()
+            shutil.rmtree(cache, ignore_errors=True)
+
+
+# ======================================================================
+#  显卡运行库下载（docs/protocol.md 第 7.1 节）
+# ======================================================================
+def load_manifest() -> dict:
+    return json.loads(MANIFEST.read_text(encoding="utf-8"))
+
+
+def ensure_wheel_cache() -> Path:
+    """本地镜像用的 wheel 缓存（build/cuda-wheels/）：没有就从清华镜像 / PyPI 下载一次（1.3GB，支持续传），校验 sha256。"""
+    import hashlib
+
+    import httpx
+
+    WHEEL_CACHE.mkdir(parents=True, exist_ok=True)
+    for p in load_manifest()["packages"]:
+        dst = WHEEL_CACHE / p["filename"]
+        ok_mark = dst.with_name(dst.name + ".sha256-ok")
+        if dst.is_file() and dst.stat().st_size == p["size"] and ok_mark.is_file() \
+                and ok_mark.read_text().strip() == p["sha256"]:
+            continue
+        if not (dst.is_file() and dst.stat().st_size == p["size"]):
+            part = dst.with_name(dst.name + ".part")
+            say(f"   准备 wheel 缓存：下载 {p['filename']}（{p['size'] / 2**20:.0f} MB）")
+            for base in ["https://pypi.tuna.tsinghua.edu.cn/", "https://files.pythonhosted.org/"] * 2:
+                have = part.stat().st_size if part.exists() else 0
+                try:
+                    with httpx.stream("GET", base + p["path"], headers={"Range": f"bytes={have}-"} if have else {},
+                                      timeout=httpx.Timeout(30, connect=10), follow_redirects=True) as r:
+                        r.raise_for_status()
+                        with open(part, "ab" if r.status_code == 206 else "wb") as f:
+                            for ch in r.iter_bytes(1 << 20):
+                                f.write(ch)
+                    if part.stat().st_size == p["size"]:
+                        break
+                except Exception as e:
+                    say(f"   {base} 下载失败：{e}，重试")
+            part.replace(dst)
+        h = hashlib.sha256()
+        with open(dst, "rb") as f:
+            for b in iter(lambda: f.read(8 << 20), b""):
+                h.update(b)
+        check(h.hexdigest() == p["sha256"], f"wheel 缓存校验失败：{dst}")
+        ok_mark.write_text(p["sha256"])
+    return WHEEL_CACHE
+
+
+class MirrorServer:
+    """本地 HTTP 服务器，模拟 PyPI 镜像：/<模式>/packages/.../<文件名>，支持 Range。
+
+    模式：ok 正常；slow 限速；flaky 正常下载超过 6MB 后直接断开连接（测速那种小的 Range 请求不断）；dead 一律 503。
+    """
+
+    def __init__(self, wheel_dir: Path, port: int = MIRROR_PORT, slow_rate: int = 20 << 20):
+        self.files = {p.name: p for p in wheel_dir.glob("*.whl")}
+        self.port = port
+        self.slow_rate = slow_rate
+        self.flaky_cut = 6 << 20
+        self.log: list[dict] = []
+        self._lock = threading.Lock()
+        srv = self
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                parts = self.path.split("/", 2)
+                mode = parts[1] if len(parts) > 1 else ""
+                fname = self.path.rsplit("/", 1)[-1]
+                if mode == "dead":
+                    self.send_error(503)
+                    return
+                f = srv.files.get(fname)
+                if f is None:
+                    self.send_error(404)
+                    return
+                size = f.stat().st_size
+                start, end = 0, size - 1
+                rng = self.headers.get("Range")
+                if rng:
+                    m = re.match(r"bytes=(\d+)-(\d*)$", rng.strip())
+                    if not m or int(m.group(1)) >= size:
+                        self.send_error(416)
+                        return
+                    start = int(m.group(1))
+                    end = min(size - 1, int(m.group(2))) if m.group(2) else size - 1
+                entry = {"mode": mode, "file": fname, "start": start, "end": end, "sent": 0, "done": False,
+                         "t": time.time()}
+                with srv._lock:
+                    srv.log.append(entry)
+                probe = rng is not None and end - start + 1 <= (2 << 20)
+                self.send_response(206 if rng else 200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(end - start + 1))
+                self.send_header("Accept-Ranges", "bytes")
+                if rng:
+                    self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+                self.end_headers()
+                try:
+                    with open(f, "rb") as fh:
+                        fh.seek(start)
+                        left = end - start + 1
+                        while left > 0:
+                            chunk = fh.read(min(256 << 10, left))
+                            if not chunk:
+                                break
+                            self.wfile.write(chunk)
+                            left -= len(chunk)
+                            entry["sent"] += len(chunk)
+                            if mode == "slow":
+                                time.sleep(len(chunk) / srv.slow_rate)
+                            if mode == "flaky" and not probe and entry["sent"] >= srv.flaky_cut:
+                                self.close_connection = True     # 模拟网络中断：没发完就断开
+                                return
+                    entry["done"] = left == 0
+                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+                    entry["aborted"] = True
+
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", port), H)
+        self.httpd.daemon_threads = True
+        threading.Thread(target=self.httpd.serve_forever, daemon=True, name="mirror").start()
+
+    def base(self, mode: str) -> str:
+        return f"http://127.0.0.1:{self.port}/{mode}/"
+
+    def requests(self, since: int = 0) -> list[dict]:
+        with self._lock:
+            return [dict(e) for e in self.log[since:]]
+
+    def mark(self) -> int:
+        with self._lock:
+            return len(self.log)
+
+    def stop(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+
+
+def mirrors_env(*entries) -> str:
+    return json.dumps([{"name": n, "base": b, "group": g} for n, b, g in entries], ensure_ascii=False)
+
+
+def runtime_status(evs: list[dict]) -> list[dict]:
+    return [e for e in evs if e.get("event") == "status" and e.get("state") == "downloading_runtime"]
+
+
+def part_sizes(rt: Path) -> dict[str, int]:
+    d = rt / "_downloads"
+    return {p.name: p.stat().st_size for p in d.glob("*.part")} if d.is_dir() else {}
+
+
+def check_runtime_installed(rt: Path, name: str):
+    man = load_manifest()
+    marker = rt / "kikitori-runtime.json"
+    check(marker.is_file(), f"[{name}] 没有写标记文件 {marker}")
+    for p in man["packages"]:
+        for dll, size in p["dlls"].items():
+            f = rt / dll
+            check(f.is_file() and f.stat().st_size == size, f"[{name}] {dll} 缺失或大小不对")
+    check(not (rt / "_downloads").exists(), f"[{name}] 装完后 _downloads 目录应该删掉")
+    check(not list(rt.glob("*.whl")), f"[{name}] 装完后不应该留 wheel")
+
+
+def run_runtime_suite(cmd, env, out_dir: Path, mirror: MirrorServer, runtime_only_env: dict):
+    """显卡运行库下载的各种情况（本地镜像）。runtime_only_env：源码模式下要忽略 Python 环境里的 CUDA。"""
+    man = load_manifest()
+    pk = {p["name"]: p for p in man["packages"]}
+    cublas, nvrtc = pk["nvidia-cublas-cu12"], pk["nvidia-cuda-nvrtc-cu12"]
+    total_mb = sum(p["size"] for p in man["packages"]) / 2**20
+    rt = out_dir / "runtime-A"
+    shutil.rmtree(rt, ignore_errors=True)
+    zh = str(TESTDATA / "tts_zh.wav")
+
+    def engine(name, rt_dir, mirrors):
+        e = dict(env, **runtime_only_env, KIKITORI_RUNTIME_DIR=str(rt_dir), KIKITORI_DOWNLOAD_MIRRORS=mirrors)
+        eng = Engine(cmd, out_dir / f"engine_rt_{name}.stderr.log", e, f"rt-{name}")
+        eng.wait_status("idle", 60)
+        return eng
+
+    def finish(eng):
+        eng.send({"cmd": "shutdown"})
+        eng.proc.wait(5)
+        check(not eng.bad_lines, f"[{eng.name}] stdout 里有非 JSON 的行：{eng.bad_lines[:3]}")
+        eng.check_stderr_clean()
+
+    # ---------- 1. CPU 模式：不下载 ----------
+    m_req = mirror.mark()
+    eng = engine("cpu", rt, mirrors_env(("本地正常", mirror.base("ok"), "china")))
+    try:
+        m = eng.mark()
+        eng.send({"cmd": "start", "config": make_config(out_dir, audio_file=zh, device="cpu", compute_type="int8",
+                                                        target="zh-Hant", source="china")})
+        eng.wait_status("listening", 300, m)
+        f = eng.wait_for(lambda e: e.get("event") == "final", 300, m, " CPU 模式的 final")
+        evs = eng.since(m)
+        check(not runtime_status(evs), f"CPU 模式不应该下载运行库：{statuses(evs)}")
+        check(not mirror.requests(m_req), "CPU 模式不应该有下载请求")
+        check(not rt.exists() or not any(rt.iterdir()), f"CPU 模式不应该创建运行库文件：{rt}")
+        say(f"  ✓ CPU 模式：{' → '.join(statuses(evs))}，没有下载；识别出 #{f['id']} {f['text']}")
+        finish(eng)
+    finally:
+        eng.kill()
+
+    # ---------- 2. 下载中 stop：及时停下，.part 不再增长 ----------
+    eng = engine("stop", rt, mirrors_env(("本地慢速", mirror.base("slow"), "china")))
+    try:
+        m = eng.mark()
+        eng.send({"cmd": "start", "config": make_config(out_dir, audio_file=zh, source="china")})
+        eng.wait_for(lambda e: e.get("state") == "downloading_runtime" and e.get("progress", 0) >= 0.02, 60, m,
+                     " 下载进度 ≥ 2%")
+        t0 = time.time()
+        m2 = eng.mark()
+        eng.send({"cmd": "stop"})
+        eng.wait_status("stopped", 5, m2)
+        dt = time.time() - t0
+        time.sleep(1.0)
+        s1 = part_sizes(rt)
+        time.sleep(2.0)
+        s2 = part_sizes(rt)
+        late = [e for e in eng.since(m2) if e.get("event") == "status" and e.get("state") != "stopped"]
+        check(not late, f"stop 之后还有状态事件：{late[:3]}")
+        check(s1 and s1 == s2, f"stop 之后 .part 还在变大：{s1} → {s2}")
+        rs = runtime_status(eng.since(m))
+        progress = [e["progress"] for e in rs]
+        check(progress == sorted(progress), f"下载进度不是递增的：{progress}")
+        check(re.search(r"\d+ / \d+ MB · 本地慢速", rs[-1]["message"]), f"进度 message 格式不对：{rs[-1]}")
+        gaps = [b - a for a, b in zip([t for t, e in eng.events if e.get("state") == "downloading_runtime"],
+                                      [t for t, e in eng.events if e.get("state") == "downloading_runtime"][1:])]
+        check(not gaps[1:] or min(gaps[1:]) > 0.4, f"downloading_runtime 太频繁（最小间隔 {min(gaps[1:]):.2f}s）")
+        say(f"  ✓ 下载中 stop：{dt:.2f}s 内 stopped，之后 .part 不再增长（{sum(s2.values()) / 2**20:.0f} MB 保留）；"
+            f"进度示例：{rs[-1]['message']}")
+        finish(eng)
+    finally:
+        eng.kill()
+
+    # ---------- 3. 下载中进程被杀（模拟断网/崩溃）→ .part 保留 ----------
+    eng = engine("kill", rt, mirrors_env(("本地慢速", mirror.base("slow"), "china")))
+    try:
+        m = eng.mark()
+        eng.send({"cmd": "start", "config": make_config(out_dir, audio_file=zh, source="china")})
+        eng.wait_for(lambda e: e.get("state") == "downloading_runtime" and e.get("progress", 0) >= 0.06, 60, m,
+                     " 下载进度 ≥ 6%")
+    finally:
+        eng.kill()
+    time.sleep(0.5)
+    killed = part_sizes(rt)
+    resume_at = killed.get(cublas["filename"] + ".part", 0)
+    check(resume_at > 0, f"进程被杀后应该留下 .part：{killed}")
+    # 再放一个内容全错（全 0）但大小正确的 nvrtc .part：应该校验失败、删掉重下
+    with open(rt / "_downloads" / (nvrtc["filename"] + ".part"), "wb") as f:
+        f.truncate(nvrtc["size"])
+    say(f"  ✓ 下载中进程被杀：.part 保留 {resume_at / 2**20:.0f} MB；另放一个 sha 不对的 nvrtc .part")
+
+    # ---------- 4. 续传 + 第一个源中途断开自动换源 + sha 不对重下 + 装完能识别 ----------
+    m_req = mirror.mark()
+    eng = engine("resume", rt, mirrors_env(("本地不稳", mirror.base("flaky"), "china"),
+                                           ("本地正常", mirror.base("ok"), "china")))
+    try:
+        m = eng.mark()
+        t0 = time.time()
+        eng.send({"cmd": "start", "config": make_config(out_dir, audio_file=zh, language="zh", target="zh-Hant",
+                                                        source="china")})
+        eng.wait_status("listening", 600, m)
+        evs = eng.since(m)
+        sts = statuses(evs)
+        check(sts.index("loading_model") > max(i for i, s in enumerate(sts) if s == "downloading_runtime"),
+              f"应该先下载运行库再加载模型：{sts}")
+        rs = runtime_status(evs)
+        progress = [e["progress"] for e in rs]
+        check(progress == sorted(progress) and progress[-1] == 1.0, f"下载进度应该递增并以 1.0 结束：{progress}")
+        check(any("本地正常" in e["message"] for e in rs), f"应该换到“本地正常”源：{rs[-1]}")
+        reqs = mirror.requests(m_req)
+        flaky = [r for r in reqs if r["mode"] == "flaky" and r["file"] == cublas["filename"]]
+        ok_cb = [r for r in reqs if r["mode"] == "ok" and r["file"] == cublas["filename"]]
+        ok_nv = [r for r in reqs if r["mode"] == "ok" and r["file"] == nvrtc["filename"]]
+        check(flaky and flaky[0]["start"] == resume_at, f"应该从 {resume_at} 处续传：{flaky}")
+        check(ok_cb and ok_cb[0]["start"] > resume_at and ok_cb[0]["done"],
+              f"换源后应该接着续传（不是从头下）：{ok_cb}")
+        check(ok_nv and ok_nv[-1]["start"] == 0 and ok_nv[-1]["done"], f"sha 不对的 nvrtc 应该从头重下：{ok_nv}")
+        served = sum(r["sent"] for r in reqs)
+        check_runtime_installed(rt, "resume")
+        say(f"  ✓ 续传：本地不稳 从 {resume_at / 2**20:.0f} MB 处接着下 → 断开 → 自动换“本地正常”从 "
+            f"{ok_cb[0]['start'] / 2**20:.0f} MB 处续传；sha 不对的 nvrtc 从头重下；"
+            f"本次共传 {served / 2**20:.0f}/{total_mb:.0f} MB，{time.time() - t0:.0f}s 到 listening")
+        wait_playback_done(eng, m, 120, "runtime-resume")
+        finals, partials, trans = check_subtitles(eng.since(m), lang="zh", modes={"translating"}, name="runtime-resume")
+        say(f"  ✓ 装好运行库后显卡识别正常：{len(finals)} 个 final，例如 #{finals[0]['id']} {finals[0]['text']}")
+        finish(eng)
+    finally:
+        eng.kill()
+
+    # ---------- 5. 已有运行库：不重复下载 ----------
+    m_req = mirror.mark()
+    eng = engine("again", rt, mirrors_env(("本地正常", mirror.base("ok"), "china")))
+    try:
+        m = eng.mark()
+        eng.send({"cmd": "start", "config": make_config(out_dir, audio_file=zh, source="china")})
+        eng.wait_status("listening", 300, m)
+        evs = eng.since(m)
+        check(not runtime_status(evs), f"已经装好运行库，不应该再下载：{statuses(evs)}")
+        check(not mirror.requests(m_req), "已经装好运行库，不应该有下载请求")
+        eng.wait_for(lambda e: e.get("event") == "final", 60, m, " final")
+        say(f"  ✓ 已有运行库：{' → '.join(statuses(evs))}，没有下载请求，识别正常")
+        finish(eng)
+    finally:
+        eng.kill()
+
+    # ---------- 6. auto 选源（坏源排后面）；只有坏源时报错并提示换下载源 ----------
+    rt_b = out_dir / "runtime-B"
+    shutil.rmtree(rt_b, ignore_errors=True)
+    eng = engine("auto", rt_b, mirrors_env(("本地坏源", mirror.base("dead"), "official"),
+                                          ("本地正常", mirror.base("ok"), "china")))
+    try:
+        m = eng.mark()
+        eng.send({"cmd": "start", "config": make_config(out_dir, audio_file=zh, source="auto")})
+        st = eng.wait_for(lambda e: e.get("state") == "downloading_runtime" and "MB ·" in e.get("message", ""),
+                          60, m, " 下载进度")
+        check("本地正常" in st["message"], f"auto 模式应该选能用的源：{st}")
+        m2 = eng.mark()
+        eng.send({"cmd": "stop"})
+        eng.wait_status("stopped", 5, m2)
+        say(f"  ✓ auto 模式：测速后跳过坏源，用“本地正常”：{st['message']}")
+        m = eng.mark()
+        eng.send({"cmd": "start", "config": make_config(out_dir, audio_file=zh, source="official")})
+        err = eng.wait_status("error", 60, m)
+        check("切换下载源" in err["message"] and "CPU" in err["message"], f"失败提示应该告诉用户怎么办：{err}")
+        say(f"  ✓ 只有坏源（official）：status error：{err['message']}")
+        finish(eng)
+    finally:
+        eng.kill()
+
+
+def run_runtime_real(cmd, env, out_dir: Path, runtime_only_env: dict) -> dict:
+    """真实从网上下载一次显卡运行库（auto 模式），装好后识别 tts_zh.wav。"""
+    rt = out_dir / "runtime-real"
+    shutil.rmtree(rt, ignore_errors=True)
+    e = dict(env, **runtime_only_env, KIKITORI_RUNTIME_DIR=str(rt))
+    e.pop("KIKITORI_DOWNLOAD_MIRRORS", None)
+    eng = Engine(cmd, out_dir / "engine_rt_real.stderr.log", e, "rt-real")
     try:
         eng.wait_status("idle", 60)
         m = eng.mark()
-        eng.send({"cmd": "start", "config": make_config(out_dir, audio_file=str(TESTDATA / "tts_en.wav"),
-                                                        language="en", model="tiny")})
-        eng.wait_status("listening", 600, m)
-        evs = eng.since(m)
-        dl = [e for e in evs if e.get("event") == "status" and e.get("state") == "downloading_model"]
-        check(dl, f"没有 downloading_model：{statuses(evs)}")
-        progress = [e.get("progress") for e in dl if "progress" in e]
-        check(progress == sorted(progress), f"下载进度不是递增的：{progress}")
-        say(f"  ✓ 首次下载：{' → '.join(dict.fromkeys(statuses(evs)))}；进度 {progress}")
-        eng.wait_for(lambda e: e.get("event") == "final", 60, m, " tiny 模型的 final")
-        say("  ✓ 下载的 tiny 模型能正常识别")
+        t0 = time.time()
+        eng.send({"cmd": "start", "config": make_config(out_dir, audio_file=str(TESTDATA / "tts_zh.wav"),
+                                                        language="zh", target="zh-Hant", source="auto")})
+        st = eng.wait_for(lambda e: e.get("event") == "status" and e.get("state") in ("loading_model", "error"),
+                          3600, m, " 运行库下载完成")
+        t_dl = time.time() - t0
+        rs = runtime_status(eng.since(m))
+        check(st["state"] == "loading_model", f"真实下载失败：{st}")
+        check(rs and rs[-1].get("progress") == 1.0, f"运行库下载应该以 progress 1.0 结束：{rs[-1:]}")
+        src = rs[-1]["message"].rsplit("·", 1)[-1].strip()
+        eng.wait_status("listening", 300, m)
+        check_runtime_installed(rt, "real")
+        f = eng.wait_for(lambda e: e.get("event") == "final", 60, m, " final")
+        log_lines = eng.log_path.read_bytes().decode("utf-8", "replace").splitlines()
+        say(f"  ✓ 真实下载（auto）：{t_dl:.0f}s，选中下载源：{src}")
+        for line in log_lines:
+            if "测速" in line or "下载完成" in line:
+                say(f"      {line}")
+        say(f"  ✓ 装好后显卡识别正常：#{f['id']} {f['text']}")
         eng.send({"cmd": "shutdown"})
         eng.proc.wait(5)
-        check(not eng.bad_lines, f"stdout 里有非 JSON 的行：{eng.bad_lines[:3]}")
         eng.check_stderr_clean()
+        return {"seconds": round(t_dl), "source": src}
     finally:
         eng.kill()
-        shutil.rmtree(cache, ignore_errors=True)
 
 
 # ======================================================================
@@ -608,7 +1003,11 @@ def main():
     ap.add_argument("--skip-live", action="store_true")
     ap.add_argument("--skip-reload", action="store_true")
     ap.add_argument("--skip-eof", action="store_true")
+    ap.add_argument("--skip-main", action="store_true")
     ap.add_argument("--download-test", action="store_true")
+    ap.add_argument("--runtime-test", action="store_true")
+    ap.add_argument("--runtime-real", action="store_true")
+    ap.add_argument("--keep-runtime", action="store_true")
     args = ap.parse_args()
 
     if args.exe is not None:
@@ -622,27 +1021,57 @@ def main():
 
     env = dict(os.environ)
     env.pop("DEEPSEEK_API_KEY", None)        # deepseek 只测“没填 Key”
+    for k in ("KIKITORI_RUNTIME_ONLY", "KIKITORI_DOWNLOAD_MIRRORS", "KIKITORI_RUNTIME_DIR"):
+        env.pop(k, None)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    # 运行库目录一律放在 build/test/ 下（不碰 %LOCALAPPDATA%\Kikitori）。运行库专项结束时这里是装好的，主流程接着用；
+    # 没跑专项时，精简 exe 的第一次 start 会从本地镜像装一份
+    shared_rt = out_dir / "runtime-A"
+    env["KIKITORI_RUNTIME_DIR"] = str(shared_rt)
+    # 源码模式下测运行库下载，要忽略 Python 环境里 pip 装的 CUDA
+    runtime_only_env = {"KIKITORI_RUNTIME_ONLY": "1"} if mode == "source" else {}
 
     say(f"== 引擎协议测试（{mode}）：{' '.join(cmd)}")
     say(f"   输出目录：{out_dir}")
     mock = MockLLM(out_dir / "mock_llm_requests.log")
+    mirror = None
     ok = False
     t0 = time.time()
+    real = None
     try:
-        say("-- 主流程")
-        run_main_suite(cmd, env, out_dir, mock, args)
+        if mode == "exe" or args.runtime_test:
+            ensure_wheel_cache()
+            mirror = MirrorServer(WHEEL_CACHE)
+            env["KIKITORI_DOWNLOAD_MIRRORS"] = mirrors_env(("本地镜像", mirror.base("ok"), "official"),
+                                                           ("本地镜像", mirror.base("ok"), "china"))
+            say(f"   本地镜像：{mirror.base('ok')}（wheel 缓存 {WHEEL_CACHE}）")
+        if args.runtime_test:
+            say("-- 显卡运行库下载（本地镜像）")
+            run_runtime_suite(cmd, env, out_dir, mirror, runtime_only_env)
+        if not args.skip_main:
+            say("-- 主流程")
+            run_main_suite(cmd, env, out_dir, mock, args)
         if not args.skip_eof:
             say("-- stdin EOF")
             run_eof_suite(cmd, env, out_dir)
         if args.download_test:
             say("-- 首次下载模型")
             run_download_suite(cmd, env, out_dir)
+        if args.runtime_real:
+            say("-- 显卡运行库真实下载（auto）")
+            real = run_runtime_real(cmd, env, out_dir, runtime_only_env)
         ok = True
     except TestFailure as e:
         say(f"\n✗ 测试失败：{e}")
     finally:
         mock.stop()
+        if mirror is not None:
+            mirror.stop()
+        if not args.keep_runtime:
+            for d in ("runtime-A", "runtime-B", "runtime-real"):
+                shutil.rmtree(out_dir / d, ignore_errors=True)
+    if real:
+        say(f"   真实下载：{real['seconds']}s，下载源 {real['source']}")
     say(f"\n{'全部通过' if ok else '有失败'}（{mode}，用时 {time.time() - t0:.0f}s）。引擎日志在 {out_dir}")
     sys.exit(0 if ok else 1)
 

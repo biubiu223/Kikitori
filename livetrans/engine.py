@@ -140,13 +140,48 @@ class _NullWriter:
         pass
 
 
-def _expected_download_size(repo: str) -> int:
+class ModelDownloadCancelled(Exception):
+    """下载模型时收到 stop / shutdown。"""
+
+
+class _TooSlow(Exception):
+    """auto 模式下官方源太慢，换镜像。"""
+
+
+# 识别模型的下载源（docs/protocol.md 第 7.2 节）
+HF_ENDPOINTS = {"official": ("huggingface.co", "https://huggingface.co"),
+                "china": ("hf-mirror.com", "https://hf-mirror.com")}
+SLOW_AFTER_S = 20.0          # auto 模式：官方源下载 20 秒后平均速度还低于 300KB/s 就换镜像
+SLOW_BYTES_PER_S = 300 << 10
+
+
+def _hf_endpoints(mode: str, repo: str) -> list[tuple[str, str, str]]:
+    """按下载源设置排出要尝试的 (名字, 地址, 分组)。auto：先试官方，连不上就把镜像排前面。"""
+    off = (*HF_ENDPOINTS["official"], "official")
+    cn = (*HF_ENDPOINTS["china"], "china")
+    if mode == "official":
+        return [off]
+    if mode == "china":
+        return [cn]
+    try:
+        import httpx
+
+        r = httpx.get(f"{off[1]}/api/models/{repo}", timeout=httpx.Timeout(6.0, connect=5.0))
+        if r.status_code < 500:
+            return [off, cn]
+        print(f"[asr] {off[0]} 返回 {r.status_code}，改用镜像")
+    except Exception as e:
+        print(f"[asr] 连不上 {off[0]}（{type(e).__name__}），改用镜像 {cn[0]}")
+    return [cn, off]
+
+
+def _expected_download_size(repo: str, endpoint: str) -> int:
     """模型文件总大小（字节），用来算下载进度。查不到返回 0。"""
     try:
         from huggingface_hub import HfApi
         from huggingface_hub.utils import filter_repo_objects
 
-        info = HfApi().model_info(repo, files_metadata=True)
+        info = HfApi(endpoint=endpoint).model_info(repo, files_metadata=True)
         names = [s.rfilename for s in info.siblings or []]
         keep = set(filter_repo_objects(names, allow_patterns=_MODEL_FILES))
         return sum((s.size or 0) for s in info.siblings or [] if s.rfilename in keep)
@@ -155,13 +190,29 @@ def _expected_download_size(repo: str) -> int:
         return 0
 
 
-def _progress_tqdm(on_progress, expected_total: int):
-    """造一个 tqdm 子类交给 huggingface_hub：不往任何地方输出进度条，只把“已下载字节数”报告给 on_progress。"""
+def _progress_tqdm(on_progress, expected_total: int, cancelled=None, too_slow_check: bool = False):
+    """造一个 tqdm 子类交给 huggingface_hub：不往任何地方输出进度条，只把“已下载字节数”报告给 on_progress。
+
+    下载线程每收到一块数据都会调 update()：在这里检查 cancelled()（stop/shutdown）和“官方源太慢”，
+    抛异常就能让 huggingface_hub 中止下载（已下载的部分留在缓存里，下次接着下）。
+    """
     from tqdm.auto import tqdm as base_tqdm
 
     bars = []
     lock = threading.Lock()
-    state = {"last": 0.0, "best": 0.0, "sent": 0.0}
+    state = {"last": 0.0, "best": 0.0, "sent": 0.0, "t0": time.monotonic(), "abort": None}
+
+    def check_abort(bar):
+        if state["abort"] is not None:
+            raise state["abort"]
+        if cancelled is not None and cancelled():
+            state["abort"] = ModelDownloadCancelled()
+            raise state["abort"]
+        if too_slow_check and getattr(bar, "unit", "") == "B":
+            dt = time.monotonic() - state["t0"]
+            if dt > SLOW_AFTER_S and bar.n / dt < SLOW_BYTES_PER_S:
+                state["abort"] = _TooSlow(f"{bar.n / dt / 1024:.0f} KB/s")
+                raise state["abort"]
 
     def report():
         now = time.monotonic()
@@ -201,18 +252,24 @@ def _progress_tqdm(on_progress, expected_total: int):
 
         def update(self, n=1):
             r = super().update(n)
+            check_abort(self)
             report()
             return r
 
     return ProgressTqdm
 
 
-def resolve_model(name: str, sink: EventSink) -> str:
-    """返回模型所在的本地目录；本地还没有就先下载（通过 sink 报告 downloading_model 和进度）。"""
+def resolve_model(name: str, sink: EventSink, source: str = "auto", cancelled=None) -> str:
+    """返回模型所在的本地目录；本地还没有就先下载（通过 sink 报告 downloading_model 和进度）。
+
+    source：下载源 "auto" / "official"（huggingface.co）/ "china"（hf-mirror.com）。
+    cancelled：可选，返回 True 时中止下载（抛 ModelDownloadCancelled）。
+    """
     if os.path.isdir(name):
         return name
     repo = _repo_id(name)
     import huggingface_hub
+    import huggingface_hub.constants as hf_constants
 
     try:
         # 已经下载过：直接用本地缓存，不联网（也就不会因为网络不好卡在启动上）
@@ -220,35 +277,61 @@ def resolve_model(name: str, sink: EventSink) -> str:
     except Exception:
         pass
 
+    # 不用 Xet 协议，统一走普通 HTTP：镜像站不一定支持 Xet，而且这样进度回调里能中止下载
+    hf_constants.HF_HUB_DISABLE_XET = True
     sink.status("downloading_model", f"正在准备下载语音识别模型 {name}…", "info", progress=0.0)
-    total = _expected_download_size(repo)
-    if total >= 1 << 30:
-        size = f"约 {total / (1 << 30):.1f}GB"
-    elif total > 0:
-        size = f"约 {total / (1 << 20):.0f}MB"
-    else:
-        size = "约 1.5–3GB"
-    msg = f"正在下载语音识别模型 {name}（{size}，只需下载一次，请耐心等待）…"
-    print("[asr]", msg)
-    sink.status("downloading_model", msg, "info", progress=0.0)
-    tqdm_class = _progress_tqdm(lambda p: sink.status("downloading_model", msg, "info", progress=round(p, 3)),
-                                total)
-    t = time.time()
-    try:
-        path = huggingface_hub.snapshot_download(repo, allow_patterns=_MODEL_FILES, tqdm_class=tqdm_class)
-    except Exception as e:
-        raise RuntimeError(f"下载失败（请检查网络连接，下次启动会接着下载）：{e}") from e
-    print(f"[asr] 模型 {name} 下载完成（{time.time() - t:.0f}s）：{path}")
-    sink.status("downloading_model", msg, "info", progress=1.0)
-    return path
+    endpoints = _hf_endpoints(source, repo)
+    last_err: Exception | None = None
+    for i, (label, endpoint, group) in enumerate(endpoints):
+        if cancelled is not None and cancelled():
+            raise ModelDownloadCancelled()
+        total = _expected_download_size(repo, endpoint)
+        if total >= 1 << 30:
+            size = f"约 {total / (1 << 30):.1f}GB"
+        elif total > 0:
+            size = f"约 {total / (1 << 20):.0f}MB"
+        else:
+            size = "约 1.5–3GB"
+        msg = f"正在下载语音识别模型 {name}（{size}，只需下载一次）· {label}"
+        print("[asr]", msg)
+        sink.status("downloading_model", msg, "info", progress=0.0)
+        tqdm_class = _progress_tqdm(
+            lambda p, msg=msg: sink.status("downloading_model", msg, "info", progress=round(p, 3)), total,
+            cancelled=cancelled,
+            # auto 模式下，官方源太慢就换镜像（只在后面还有别的源时）
+            too_slow_check=(source == "auto" and group == "official" and i + 1 < len(endpoints)))
+        t = time.time()
+        try:
+            path = huggingface_hub.snapshot_download(repo, allow_patterns=_MODEL_FILES, tqdm_class=tqdm_class,
+                                                     endpoint=endpoint)
+        except ModelDownloadCancelled:
+            print("[asr] 模型下载已中止（下次接着下）")
+            raise
+        except _TooSlow as e:
+            print(f"[asr] {label} 太慢（{e}），换下一个下载源")
+            last_err = e
+            continue
+        except Exception as e:
+            if cancelled is not None and cancelled():
+                raise ModelDownloadCancelled() from e
+            print(f"[asr] 从 {label} 下载失败：{type(e).__name__}: {e}")
+            last_err = e
+            continue
+        print(f"[asr] 模型 {name} 下载完成（{time.time() - t:.0f}s，{label}）：{path}")
+        sink.status("downloading_model", msg, "info", progress=1.0)
+        return path
+    names = "、".join(e[0] for e in endpoints)
+    raise RuntimeError(f"下载失败（已尝试 {names}；请检查网络连接，或者在 设置 → 语音识别 里切换下载源，"
+                       f"下次启动会接着下载）：{last_err}")
 
 
-def load_transcriber(acfg: dict, language: str, hotwords: str | None, sink: EventSink) -> Transcriber:
+def load_transcriber(acfg: dict, language: str, hotwords: str | None, sink: EventSink,
+                     source: str = "auto", cancelled=None) -> Transcriber:
     """（需要时先下载）加载 Whisper 模型并预热，过程通过 sink.status 报告。失败时抛异常。"""
     name = str(acfg.get("model", "large-v3"))
     device = str(acfg.get("device", "cuda"))
     compute_type = str(acfg.get("compute_type", "float16"))
-    path = resolve_model(name, sink)
+    path = resolve_model(name, sink, source, cancelled)
     sink.status("loading_model", "正在加载语音识别模型…")
     asr = Transcriber(
         model=path,

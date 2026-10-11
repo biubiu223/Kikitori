@@ -11,13 +11,14 @@ Kikitori\
   Kikitori.exe                 ← WinUI 3 界面（C#，自包含，免安装）
   engine\
     KikitoriEngine.exe         ← Python 引擎（PyInstaller onedir 打包）
-    _internal\...               ← Python 运行时、CUDA DLL、模型资源等
+    _internal\...               ← Python 运行时、模型资源等（**不含** NVIDIA CUDA 运行库）
 ```
 
 - 用户数据目录：`%LOCALAPPDATA%\Kikitori\`
   - `settings.json`：界面保存的全部设置（界面自己管理）
   - `logs\engine.log`：引擎的 stderr 输出（由界面写入）
   - `字幕记录\`：引擎写入的字幕记录（路径通过 config.log_dir 传给引擎）
+  - `runtime\cuda12\`：**首次使用 GPU 时由引擎下载**的 NVIDIA 运行库（cuBLAS / cuDNN / NVRTC 的 DLL，约 2GB 解压后）。见第 7 节。
 - Whisper 模型：继续使用 HuggingFace 默认缓存（`%USERPROFILE%\.cache\huggingface`），本机已有 large-v3。
 
 **开发时**引擎可以不打包，在仓库根目录用 `.venv\Scripts\python.exe engine_server.py` 启动，协议完全相同。
@@ -62,6 +63,7 @@ Kikitori\
   },
   "vad": {"threshold": 0.5, "min_silence_ms": 500, "max_segment_s": 8.0, "min_speech_ms": 250},
   "audio": {"device": "", "file": ""}, // device 为空=默认播放设备；file 非空=测试用，从音频文件读取（按真实速度播放）
+  "download": {"source": "auto"},      // 显卡运行库和识别模型的下载源："auto" | "official" | "china"，见第 7 节
   "glossary": {"兎田ぺこら": "兔田佩克拉"},
   "log_dir": "C:\\Users\\...\\AppData\\Local\\Kikitori\\字幕记录"
 }
@@ -102,6 +104,7 @@ Kikitori\
 ```
 `state` 取值：
 - `idle`：已启动、尚未 start
+- `downloading_runtime`：首次使用 GPU，正在下载 NVIDIA 运行库（带 `"progress": 0.0~1.0`，见第 7 节）
 - `downloading_model`：首次下载模型（可带 `"progress": 0.0~1.0`）
 - `loading_model`、`warming_up`
 - `listening`：正在监听（message 里写设备名和语言，例如“正在监听：扬声器 (Realtek(R) Audio) | 日语 → 简体中文 | DeepSeek · deepseek-flash”）
@@ -173,6 +176,10 @@ Kikitori\
 - **pause**：还没开始监听时收到 `pause`，直接忽略，不回事件。
 - **设备**：指定的播放设备找不到时，改用默认设备并发 `notice(warn)`。正在录音时 `list_devices` 可能返回旧列表（PortAudio 在有录音流时不刷新），`reconnect_audio` 或重新 `start` 后会刷新。系统默认播放设备变了不会被自动发现，需要界面发 `reconnect_audio`。
 - **恢复**：上一次 `start` 因为录不了音而失败（`status error`）后，`reconnect_audio` 会按上次的配置重新 start。
+- **显卡运行库下载**（第 7.1 节）：先发一次 `downloading_runtime`（progress 0，“正在准备下载显卡运行库（只需一次）…”），auto 模式接着测速（最多约 6 秒）；下载中 message 形如“正在下载显卡运行库（只需一次）：412 / 1309 MB · 清华镜像”，progress 在装完前最多到 0.999；装好后发 progress 1.0 的“显卡运行库已就绪 · 清华镜像”，然后才是 `downloading_model` / `loading_model`。下载源名字：`PyPI 官方`、`清华镜像`、`阿里云镜像`。`stop`、新的 `start`、`shutdown` 都会立即中止下载（之后不再发 `downloading_runtime`）。
+- **识别设备**：`asr.device` 也接受 `"auto"`：有 NVIDIA 驱动按 `cuda`（需要时下载运行库），否则按 `cpu`。
+- **识别模型下载**（第 7.2 节）：`downloading_model` 的 message 末尾带来源（“· huggingface.co” / “· hf-mirror.com”）。auto：huggingface.co 6 秒内连不上就先用镜像；官方源下载 20 秒后平均速度仍低于 300KB/s 也会换镜像。下载中 `stop` 同样会中止，已下载的部分下次接着下。
+- **测试用环境变量**（界面不需要设置）：`KIKITORI_RUNTIME_DIR`（运行库目录）、`KIKITORI_RUNTIME_ONLY=1`（只用运行库目录里的 CUDA，忽略打包目录/Python 环境里的）、`KIKITORI_DOWNLOAD_MIRRORS`（用 JSON 列表替换运行库下载源）。
 
 ## 6. 典型时序
 
@@ -187,3 +194,46 @@ Kikitori\
 用户在字幕条右键切换语言：界面 → set_languages   引擎 → notice "已切换：英语 → 简体中文"
 用户退出：界面 → shutdown，等待 3 秒，未退出则强制结束进程
 ```
+
+首次在新电脑上使用（GPU 模式）：
+
+```
+界面 → start {config}
+引擎 → status downloading_runtime (progress 0.00 … 1.00)   ← 只有第一次
+引擎 → status downloading_model   (progress 0.00 … 1.00)   ← 只有第一次
+引擎 → status loading_model → warming_up → listening
+```
+
+## 7. 首次运行下载（显卡运行库 / 识别模型）
+
+发布包**不再包含** NVIDIA CUDA 运行库（原来占发布包的 82%）。GPU 模式下第一次 `start` 时由引擎下载，之后一直复用。
+
+### 7.1 显卡运行库
+
+- **内容**：NVIDIA 在 PyPI 上发布的官方 wheel 包，版本固定，与打包引擎时使用的版本一致：
+  - `nvidia-cublas-cu12`、`nvidia-cudnn-cu12`、`nvidia-cuda-nvrtc-cu12`
+  - 每个文件的 PyPI 路径、大小和 sha256 写在仓库里的清单文件中（`packaging/cuda_manifest.json`，打包时一起带上）。
+- **存放位置**：`%LOCALAPPDATA%\Kikitori\runtime\cuda12\`。只解压 wheel 里 `nvidia/*/bin/*.dll`，下载的 wheel 解压后删除。全部完成后写入一个标记文件，记录清单的哈希；清单变了（升级了 CUDA 版本）就重新下载。
+- **下载源**（`config.download.source`）：
+  - `official`：files.pythonhosted.org
+  - `china`：清华 TUNA、阿里云 PyPI 镜像。镜像保持和 PyPI 相同的 `packages/...` 路径。
+  - `auto`（默认）：同时测试各个源的连接速度，选最快的；一个源失败会自动换下一个。
+- **校验与续传**：
+  - 每个文件都校验 sha256，不通过就删掉重下。
+  - 网络中断后再次 `start` 会断点续传：下载中的文件保存为 `.part`，用 HTTP Range 接着下。
+- **状态**：下载期间最多每 500ms 发一次 `status downloading_runtime`。
+  - 示例：`{"event":"status","state":"downloading_runtime","message":"正在下载显卡运行库（只需一次）：412 / 1310 MB · 清华镜像","level":"info","progress":0.31}`
+- **取消**：下载过程中收到 `stop` 或 `shutdown` 要尽快中止，已下载的部分保留，下次续传。
+- **失败**：发 `status error`。message 写清原因和办法，例如"显卡运行库下载失败：连接超时。可以在 设置 → 语音识别 里切换下载源后重试，或者改用 CPU"。
+- **没有 NVIDIA 显卡**：在下载之前就检查，例如看系统里有没有 NVIDIA 显卡或驱动的 `nvcuda.dll`。没有的话直接发 `status error`："没有检测到 NVIDIA 显卡（或驱动），请在 设置 → 语音识别 里把设备改成 CPU"，**不下载**。
+- **CPU 模式**（`asr.device = "cpu"`）：不需要、也不下载显卡运行库。
+- **查找顺序**：引擎加载 CUDA DLL 时按这个顺序找：
+  1. 打包目录里自带的（开发用的完整构建）
+  2. Python 环境里 pip 安装的（源码模式）
+  3. `runtime\cuda12\`
+  - 环境变量 `KIKITORI_RUNTIME_DIR` 可以覆盖第 3 项的位置（测试用）。
+
+### 7.2 识别模型
+
+- 下载源同样跟随 `config.download.source`：`official` 用 huggingface.co，`china` 用 hf-mirror.com，`auto` 先试官方、连不上或太慢就换镜像。
+- 状态沿用 `downloading_model`。
