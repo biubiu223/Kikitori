@@ -1,0 +1,41 @@
+# ---------- Python ----------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# ---------- 构建产物（体积很大，通过 GitHub Releases 发布，不进仓库）----------
+build/
+dist/
+*.zip
+*.7z
+
+# ---------- .NET / WinUI 3 ----------
+app/**/bin/
+app/**/obj/
+.vs/
+*.user
+*.suo
+*.binlog
+
+# ---------- 运行时产生的个人数据（旧版 tkinter 程序）----------
+字幕记录/
+运行日志.txt
+window_state.json
+*.log
+
+# 旧版程序的本地配置里可能填了 API Key —— 仓库里只放 config.example.toml
+config.toml
+
+# ---------- 测试 ----------
+# 测试录音由 tools/make_test_audio.ps1 用 Windows 自带语音现场生成，不提交
+tools/testdata/*.wav
+tools/mock_llm_requests.log
+
+# ---------- 系统 / 编辑器 ----------
+Thumbs.db
+Desktop.ini
+.DS_Store
+.idea/
+.vscode/
