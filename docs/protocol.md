@@ -21,9 +21,9 @@ Kikitori\
   - `runtime\cuda12\`：**首次使用 GPU 时由引擎下载**的 NVIDIA 运行库（cuBLAS / cuDNN / NVRTC 的 DLL，约 2GB 解压后）。见第 7 节。
 - Whisper 模型：继续使用 HuggingFace 默认缓存（`%USERPROFILE%\.cache\huggingface`），本机已有 large-v3。
 
-**开发时**引擎可以不打包，在仓库根目录用 `.venv\Scripts\python.exe engine_server.py` 启动，协议完全相同。
+**开发时**引擎可以不打包，在仓库根目录用 `.venv\Scripts\python.exe engine\engine_server.py` 启动，协议完全相同。
 界面查找引擎的顺序：
-1. 环境变量 `KIKITORI_ENGINE`（完整命令行，例如 `"D:\...\python.exe" "D:\...\engine_server.py"`）
+1. 环境变量 `KIKITORI_ENGINE`（完整命令行，例如 `"<仓库>\.venv\Scripts\python.exe" "<仓库>\engine\engine_server.py"`）
 2. `<界面exe所在目录>\engine\KikitoriEngine.exe`
 
 ## 2. 传输方式
@@ -40,7 +40,7 @@ Kikitori\
 
 ## 3. 配置对象 `config`
 
-`start` 和 `test_translation` 命令携带。字段与原 `config.toml` 一一对应：
+`start` 和 `test_translation` 命令携带。字段和默认值如下：
 
 ```json
 {
@@ -212,7 +212,7 @@ Kikitori\
 
 - **内容**：NVIDIA 在 PyPI 上发布的官方 wheel 包，版本固定，与打包引擎时使用的版本一致：
   - `nvidia-cublas-cu12`、`nvidia-cudnn-cu12`、`nvidia-cuda-nvrtc-cu12`
-  - 每个文件的 PyPI 路径、大小和 sha256 写在仓库里的清单文件中（`packaging/cuda_manifest.json`，打包时一起带上）。
+  - 每个文件的 PyPI 路径、大小和 sha256 写在仓库里的清单文件中（`engine/packaging/cuda_manifest.json`，打包时一起带上）。
 - **存放位置**：`%LOCALAPPDATA%\Kikitori\runtime\cuda12\`。只解压 wheel 里 `nvidia/*/bin/*.dll`，下载的 wheel 解压后删除。全部完成后写入一个标记文件，记录清单的哈希；清单变了（升级了 CUDA 版本）就重新下载。
 - **下载源**（`config.download.source`）：
   - `official`：files.pythonhosted.org

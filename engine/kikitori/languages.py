@@ -62,12 +62,3 @@ def same_language(spoken: str | None, target: str) -> bool:
     if spoken == "zh":
         return target == "zh-Hans"
     return spoken == target
-
-
-# 字幕用字体：同一个汉字中日字形不同，韩文需要有韩文字形的字体
-def font_for(code: str | None) -> tuple[str, ...]:
-    return {
-        "ja": ("Yu Gothic UI", "Meiryo UI", "Meiryo", "MS Gothic"),
-        "ko": ("Malgun Gothic",),
-        "zh-Hant": ("Microsoft JhengHei UI", "Microsoft JhengHei"),
-    }.get(code or "", ()) + ("Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI")

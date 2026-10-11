@@ -42,12 +42,10 @@ class LoopbackCapture:
     """把系统播放的声音不断推到 out_queue 里（每块是 16k 单声道 float32 的 numpy 数组）。"""
 
     def __init__(self, out_queue: "queue.Queue[np.ndarray]", device_hint: str = "",
-                 fallback_to_default: bool = False,
-                 not_found_tip: str = "，请运行 列出音频设备.bat 查看"):
+                 fallback_to_default: bool = True):
         self.q = out_queue
         self.device_hint = (device_hint or "").strip()
         self.fallback_to_default = fallback_to_default   # 找不到指定设备时改用默认播放设备（而不是报错）
-        self.not_found_tip = not_found_tip
         self.device_name = ""
         self.warning = ""          # 启动时值得告诉用户、但不影响录音的问题（例如改用了默认设备）
         self._pa = None
@@ -61,7 +59,7 @@ class LoopbackCapture:
         if self.device_hint:
             hint = self.device_hint.lower()
             devices = list(p.get_loopback_device_info_generator())
-            # 先找名字完全一致的（界面传的是完整设备名），再找包含关系的（config.toml 里可以只填一部分）
+            # 先找名字完全一致的（界面传的是完整设备名），再找名字包含它的
             for dev in devices:
                 if _clean_name(dev["name"]).lower() == hint:
                     return dev
@@ -70,7 +68,7 @@ class LoopbackCapture:
                     return dev
             msg = f"找不到名字包含「{self.device_hint}」的播放设备"
             if not self.fallback_to_default:
-                raise RuntimeError(msg + self.not_found_tip)
+                raise RuntimeError(msg)
             self.warning = msg + "，已改用默认播放设备"
         return p.get_default_wasapi_loopback()
 

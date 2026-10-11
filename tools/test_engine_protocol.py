@@ -1,7 +1,7 @@
 """引擎协议端到端测试（docs/protocol.md）：真的启动引擎进程，通过管道发命令、收事件、做断言。
 
 用法（在仓库根目录）：
-    .venv\\Scripts\\python.exe tools\\test_engine_protocol.py                 源码模式（python engine_server.py）
+    .venv\\Scripts\\python.exe tools\\test_engine_protocol.py                 源码模式（python engine\\engine_server.py）
     .venv\\Scripts\\python.exe tools\\test_engine_protocol.py --exe           打包版（build\\engine\\KikitoriEngine\\KikitoriEngine.exe）
     .venv\\Scripts\\python.exe tools\\test_engine_protocol.py --exe 路径      指定 exe
 可选：
@@ -34,9 +34,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent          # tools/
-ROOT = HERE.parent                              # 仓库根目录（engine_server.py 所在目录）
+ROOT = HERE.parent                              # 仓库根目录（.venv、build\ 所在目录）
+ENGINE_DIR = ROOT / "engine"                    # engine_server.py 和 kikitori 包
 TESTDATA = HERE / "testdata"
-MANIFEST = ROOT / "packaging" / "cuda_manifest.json"
+MANIFEST = ENGINE_DIR / "packaging" / "cuda_manifest.json"
 WHEEL_CACHE = ROOT / "build" / "cuda-wheels"
 MOCK_PORT = 8765
 MOCK_URL = f"http://127.0.0.1:{MOCK_PORT}/v1"
@@ -999,7 +1000,9 @@ def main():
     ap = argparse.ArgumentParser(description="Kikitori 引擎协议测试")
     ap.add_argument("--exe", nargs="?", const="", default=None,
                     help="测试打包后的 exe（不带路径 = build/engine/KikitoriEngine/KikitoriEngine.exe）")
-    ap.add_argument("--python", default=sys.executable, help="源码模式用哪个 python（默认当前解释器）")
+    venv_py = ROOT / ".venv" / "Scripts" / "python.exe"
+    ap.add_argument("--python", default=str(venv_py) if venv_py.is_file() else sys.executable,
+                    help="源码模式用哪个 python（默认仓库根目录的 .venv，没有就用当前解释器）")
     ap.add_argument("--skip-live", action="store_true")
     ap.add_argument("--skip-reload", action="store_true")
     ap.add_argument("--skip-eof", action="store_true")
@@ -1012,10 +1015,10 @@ def main():
 
     if args.exe is not None:
         exe = Path(args.exe) if args.exe else ROOT / "build" / "engine" / "KikitoriEngine" / "KikitoriEngine.exe"
-        check(exe.is_file(), f"找不到 {exe}，请先运行 packaging/build_engine.ps1")
+        check(exe.is_file(), f"找不到 {exe}，请先运行 build.ps1 或 engine/packaging/build_engine.ps1")
         cmd, mode = [str(exe)], "exe"
     else:
-        cmd, mode = [args.python, str(ROOT / "engine_server.py")], "source"
+        cmd, mode = [args.python, str(ENGINE_DIR / "engine_server.py")], "source"
     out_dir = ROOT / "build" / "test" / mode
     out_dir.mkdir(parents=True, exist_ok=True)
 

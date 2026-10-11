@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "description": "Kikitori 显卡运行库清单（NVIDIA 官方 wheel，固定版本）。由 packaging/make_cuda_manifest.py 生成，不要手改。",
+  "description": "Kikitori 显卡运行库清单（NVIDIA 官方 wheel，固定版本）。由 engine/packaging/make_cuda_manifest.py 生成，不要手改。",
   "packages": [
     {
       "name": "nvidia-cublas-cu12",

@@ -10,7 +10,7 @@
 #   powershell -ExecutionPolicy Bypass -File build.ps1 -Zip            # also create the portable zip
 #   powershell -ExecutionPolicy Bypass -File build.ps1 -Installer      # also create the setup exe (Inno Setup 6)
 #
-# Requirements: .venv with requirements.txt + requirements-build.txt installed, .NET 8 SDK,
+# Requirements: .venv (repo root) with engine\requirements.txt + engine\requirements-build.txt, .NET 8 SDK,
 #               Inno Setup 6 for -Installer (winget install JRSoftware.InnoSetup).
 # ASCII-only on purpose (Windows PowerShell 5.1 misreads UTF-8 scripts without BOM).
 param(
@@ -29,7 +29,7 @@ function Run-Script([string]$rel) {
     if ($LASTEXITCODE -ne 0) { throw "$rel failed (exit $LASTEXITCODE)" }
 }
 
-if (-not $SkipEngine) { Run-Script "packaging\build_engine.ps1" }
+if (-not $SkipEngine) { Run-Script "engine\packaging\build_engine.ps1" }
 if (-not $SkipApp) { Run-Script "app\tools\publish.ps1" }
 
 $engineDir = Join-Path $root "build\engine\KikitoriEngine"
@@ -85,7 +85,7 @@ if ($Installer) {
     }
     if (-not $iscc) { throw "Inno Setup 6 not found (winget install JRSoftware.InnoSetup)" }
     Write-Host "== installer ($iscc)" -ForegroundColor Cyan
-    & $iscc /Q "/DAppVersion=$ver" "/DSourceDir=$dist" "/DOutputDir=$(Join-Path $root 'dist')" (Join-Path $root "packaging\installer.iss")
+    & $iscc /Q "/DAppVersion=$ver" "/DSourceDir=$dist" "/DOutputDir=$(Join-Path $root 'dist')" (Join-Path $root "installer\installer.iss")
     if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
     $setup = Join-Path $root "dist\Kikitori-$ver-setup.exe"
     "installer: {0} ({1:N2} GB)" -f $setup, ((Get-Item $setup).Length / 1GB)

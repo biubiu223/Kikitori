@@ -1,8 +1,8 @@
 """Kikitori（听译）无界面引擎进程：通过 stdin / stdout 的 JSON Lines 和 WinUI 界面通信。
 
 协议见 docs/protocol.md（和界面的唯一约定）。启动方式：
-    开发时（在本文件所在目录）：.venv\\Scripts\\python.exe engine_server.py
-    打包后：engine\\KikitoriEngine.exe（PyInstaller onedir，见 packaging/）
+    开发时（在仓库根目录）：.venv\\Scripts\\python.exe engine\\engine_server.py
+    打包后：engine\\KikitoriEngine.exe（PyInstaller onedir，见 engine/packaging/）
 
 stdout 只能写协议 JSON：启动第一件事就把文件描述符 1、Win32 标准输出句柄和 sys.stdout 都改指向 stderr，
 协议改用私有的句柄写。这样 print、tqdm、huggingface_hub、C 扩展里的 printf 都不会污染协议通道。
@@ -130,7 +130,7 @@ class Protocol:
 
 
 # ======================================================================
-#  配置：缺的字段用默认值（和原 config.toml 一致），类型不对的用默认值并提示
+#  配置：缺的字段用默认值（docs/protocol.md 第 3 节），类型不对的用默认值并提示
 # ======================================================================
 def default_log_dir() -> str:
     base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
@@ -220,7 +220,7 @@ def _merge(default, value, path: str, warnings: list):
 
 
 def normalize_config(raw: dict) -> tuple[dict, list[str]]:
-    from livetrans.languages import normalize_source, normalize_target
+    from kikitori.languages import normalize_source, normalize_target
 
     warnings: list[str] = []
     cfg = _merge(default_config(), raw or {}, "", warnings)
@@ -274,7 +274,7 @@ TEST_SAMPLES = {
 
 
 def _engine_mod():
-    import livetrans.engine as m
+    import kikitori.engine as m
 
     return m
 
@@ -305,7 +305,7 @@ class _GatedSink:
 
 
 def make_protocol_sink(proto: Protocol):
-    from livetrans.engine import EventSink
+    from kikitori.engine import EventSink
 
     class ProtocolSink(EventSink):
         def __init__(self):
@@ -336,7 +336,7 @@ def make_protocol_sink(proto: Protocol):
             log(f"状态 {state}：{message}" + (f" {f['progress']:.0%}" if "progress" in f else ""))
             proto.emit("status", **f)
 
-        def notice(self, message, level="info", timeout=None):
+        def notice(self, message, level="info"):
             log(f"提示（{level}）：{message}")
             proto.emit("notice", message=message, level=level)
 
@@ -450,7 +450,7 @@ class Server:
 
     def _boot(self, gen: int, cfg: dict, old=None):
         eng = _engine_mod()
-        from livetrans.audio import FileSource, LoopbackCapture
+        from kikitori.audio import FileSource, LoopbackCapture
 
         if old is not None:
             old.join(3.0)    # 等旧会话的线程退出：不和新会话抢录音设备，换模型时旧模型也能及时释放
@@ -467,7 +467,7 @@ class Server:
                 return
             acfg = cfg["asr"]
             if acfg["device"] == "auto":
-                from livetrans.cuda_runtime import has_nvidia_driver
+                from kikitori.cuda_runtime import has_nvidia_driver
 
                 acfg["device"] = "cuda" if has_nvidia_driver() else "cpu"
                 log(f"识别设备 auto → {acfg['device']}")
@@ -513,9 +513,8 @@ class Server:
 
             session = eng.Engine(
                 cfg, self.sink, make_source,
-                source_lang=src_lang, target_lang=tgt_lang,
                 transcriber=self.asr, log_path=self.log_path(cfg["log_dir"]),
-                id_gen=self.next_id, hints="ui",
+                source_lang=src_lang, target_lang=tgt_lang, id_gen=self.next_id,
             )
             with self._lock:
                 if not self._alive(gen):
@@ -525,7 +524,7 @@ class Server:
 
     def _ensure_cuda_runtime(self, gen: int, cfg: dict, gated) -> bool:
         """显卡模式用之前：确认 NVIDIA 运行库能用，没有就下载（docs/protocol.md 第 7.1 节）。失败时已经发了 status error。"""
-        from livetrans import cuda_runtime, cuda_setup
+        from kikitori import cuda_runtime, cuda_setup
 
         if not cuda_runtime.has_nvidia_driver():
             gated.status("error", "没有检测到 NVIDIA 显卡（或驱动），请在 设置 → 语音识别 里把设备改成 CPU", "error")
@@ -616,7 +615,7 @@ class Server:
             s.emit_state()          # paused 或 listening（按设置后的真实状态）
 
     def cmd_set_languages(self, msg):
-        from livetrans.languages import (SOURCE_LANGS, TARGET_LANGS, source_menu_name,
+        from kikitori.languages import (SOURCE_LANGS, TARGET_LANGS, source_menu_name,
                                          target_menu_name)
 
         src, tgt = msg.get("source"), msg.get("target")
@@ -658,7 +657,7 @@ class Server:
             s, cfg, state = self.session, self.last_cfg, self.sink.state
         if s is not None and s.running:
             def run():
-                if s.reconnect_sync() and s is self.session:
+                if s.reconnect() and s is self.session:
                     s.emit_state()  # 重发真实状态：暂停中发 paused，否则 listening（message 带新设备）
 
             self.spawn(run, name="reconnect")
@@ -672,7 +671,7 @@ class Server:
     # ---------------- 其它 ----------------
     def cmd_list_devices(self, msg):
         def run():
-            from livetrans.audio import list_loopback_devices
+            from kikitori.audio import list_loopback_devices
 
             try:
                 devs, default = list_loopback_devices()
@@ -699,7 +698,7 @@ class Server:
         self.spawn(self._test_translation, raw, name="test-translation")
 
     def _test_translation(self, raw: dict):
-        from livetrans.translator import Translator, TranslatorError
+        from kikitori.translator import Translator, TranslatorError
 
         t0 = time.time()
         cfg, _ = normalize_config(raw)
@@ -712,7 +711,7 @@ class Server:
             log(f"翻译测试：ok={ok} {message} {output}")
             self.proto.emit("translation_test", ok=ok, message=message, input=text, output=output, elapsed=el)
 
-        tr = Translator(cfg, cfg["glossary"], src_lang, target, hints="ui")
+        tr = Translator(cfg, cfg["glossary"], src_lang, target)
         if not tr.enabled:
             result(False, "翻译已关闭（翻译引擎选的是“不翻译”）")
             return
@@ -800,15 +799,15 @@ def main():
     try:
         # 已经有的显卡运行库先加进 DLL 搜索路径（没有也没关系：import ctranslate2 / faster_whisper 不需要它，
         # 第一次用显卡之前 _ensure_cuda_runtime 会下载并再加一次）
-        from livetrans.cuda_setup import add_cuda_dll_dirs, find_cuda_dirs, runtime_dir
+        from kikitori.cuda_setup import add_cuda_dll_dirs, find_cuda_dirs, runtime_dir
 
         dirs = add_cuda_dll_dirs()
         kind = find_cuda_dirs()[0]
         log(f"Kikitori 引擎 {VERSION}（Python {sys.version.split()[0]}"
             f"{'，打包版' if getattr(sys, 'frozen', False) else ''}），显卡运行库："
             + (f"{kind}（{len(dirs)} 个目录）" if kind else f"还没有（首次用显卡时下载到 {runtime_dir()}）"))
-        import livetrans.audio  # noqa: F401
-        import livetrans.engine  # noqa: F401
+        import kikitori.audio  # noqa: F401
+        import kikitori.engine  # noqa: F401
         try:   # 很轻，先导入：免得 list_devices 和 start 在两个线程里同时导入（失败了到用的时候再报错）
             import pyaudiowpatch  # noqa: F401
         except Exception:

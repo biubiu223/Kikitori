@@ -1,6 +1,6 @@
 """首次使用显卡时下载 NVIDIA 运行库（cuBLAS / cuDNN / NVRTC 的 DLL）。规范见 docs/protocol.md 第 7.1 节。
 
-  - 按固定版本的清单（packaging/cuda_manifest.json）下载 NVIDIA 在 PyPI 上发布的官方 wheel，逐个校验 sha256
+  - 按固定版本的清单（engine/packaging/cuda_manifest.json）下载 NVIDIA 在 PyPI 上发布的官方 wheel，逐个校验 sha256
   - 只解压 wheel 里的 nvidia/*/bin/*.dll，平铺到运行库目录（默认 %LOCALAPPDATA%\\Kikitori\\runtime\\cuda12\\），然后删掉 wheel
   - 全部装好后写标记文件 kikitori-runtime.json，记录清单的哈希；清单变了（升级 CUDA）就重新下载
   - 下载中的文件存成 .part，下次用 HTTP Range 断点续传；换下载源也能接着下（同一个文件，sha256 兜底）
@@ -60,6 +60,7 @@ def manifest_path() -> str:
     if getattr(sys, "frozen", False):
         base = getattr(sys, "_MEIPASS", None) or os.path.dirname(os.path.abspath(sys.executable))
         return os.path.join(base, "cuda_manifest.json")
+    # 源码模式：engine/kikitori/cuda_runtime.py → engine/packaging/cuda_manifest.json
     return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packaging",
                         "cuda_manifest.json")
 

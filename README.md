@@ -76,46 +76,45 @@ Whisper 约占 4GB 显存，`qwen3:8b` 约 6GB，16GB 显卡可以同时运行�
 需要：Python 3.11+（开发时用的是 3.14）、.NET 8 SDK、NVIDIA 驱动。**不需要** Visual Studio。
 
 ```powershell
-# 1. Python 环境（约 1.5GB，主要是 CUDA 运行库）
+# 1. Python 环境：建在仓库根目录（约 1.5GB，主要是 CUDA 运行库）
 python -m venv .venv
-.venv\Scripts\python.exe -m pip install -r requirements.txt -r requirements-build.txt
+.venv\Scripts\python.exe -m pip install -r engine\requirements.txt -r engine\requirements-build.txt
 
-# 2. 一键构建：打包引擎 + 发布界面 + 组装到 dist\Kikitori\（加 -Zip 同时生成发布用压缩包）
+# 2. 一键构建：打包引擎 + 发布界面 + 组装到 dist\Kikitori\（加 -Zip 生成免安装压缩包，加 -Installer 生成安装程序）
 powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
-开发调试时可以不打包引擎：设置环境变量 `KIKITORI_ENGINE` 为 `"<仓库>\.venv\Scripts\python.exe" "<仓库>\engine_server.py"`，再运行 `app\Kikitori` 工程即可。
+开发调试时可以不打包引擎：设置环境变量 `KIKITORI_ENGINE` 为 `"<仓库>\.venv\Scripts\python.exe" "<仓库>\engine\engine_server.py"`，再运行 `app\Kikitori` 工程即可。也可以单独运行引擎：`.venv\Scripts\python.exe engine\engine_server.py`（stdin/stdout 收发 JSON Lines）。
 
 ### 测试
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\make_test_audio.ps1                 # 生成测试录音（用 Windows 自带语音）
 .venv\Scripts\python.exe tools\test_engine_protocol.py                              # 引擎协议测试（源码模式）
-.venv\Scripts\python.exe tools\test_engine_protocol.py --exe                        # 引擎协议测试（打包后的 exe）
+.venv\Scripts\python.exe tools\test_engine_protocol.py --exe --runtime-test         # 打包后的 exe（先用本地镜像装显卡运行库）
 powershell -ExecutionPolicy Bypass -File app\tools\ui_test.ps1 -NoMouse             # 界面自动化测试（对接模拟引擎）
 ```
 
 - `tools/mock_engine.py`：模拟引擎，按协议发假数据，不需要模型和显卡，用来开发界面。
 - `tools/mock_llm.py`：模拟的 OpenAI 兼容翻译服务，不需要 API Key。
+- 打包后的精简 exe 不带显卡运行库：`--exe` 测试会用本地 HTTP 服务器模拟镜像给它装一份（wheel 缓存在 `build\cuda-wheels\`，第一次会从网上下载约 1.3GB）。
 
 ### 目录结构
 
 ```
-app/                WinUI 3 界面（C#）
-  Kikitori/           工程源码
-  tools/              发布脚本、图标生成、界面自动化测试
-livetrans/          识别/翻译引擎（Python 包）
-engine_server.py    引擎进程入口（给界面用）
-packaging/          引擎的 PyInstaller 打包配置
-docs/protocol.md    界面 ⇄ 引擎通信协议
-tools/              模拟引擎、模拟翻译服务、测试脚本
-build.ps1           一键构建
-main.py, *.bat      简易版（tkinter 字幕窗口，不需要 .NET，见下）
+app/                    WinUI 3 界面（C#）
+  Kikitori/               工程源码
+  tools/                  发布脚本、图标生成、界面自动化测试
+engine/                 识别/翻译引擎（Python）
+  kikitori/               引擎代码（录音、断句、识别、翻译、显卡运行库下载）
+  engine_server.py        引擎进程入口（界面通过 stdin/stdout 和它通信）
+  packaging/              PyInstaller 打包配置、显卡运行库清单
+  requirements.txt        运行依赖（requirements-build.txt：打包依赖）
+installer/              Inno Setup 安装程序脚本
+docs/                   界面 ⇄ 引擎通信协议（protocol.md）、截图
+tools/                  模拟引擎、模拟翻译服务、测试脚本
+build.ps1               一键构建
 ```
-
-### 简易版（tkinter）
-
-仓库里还保留了最早的简易版：不需要 .NET 和 WinUI，用 `config.toml` 配置（首次运行时由 `config.example.toml` 生成）。双击 `安装.bat` 安装环境，再双击 `启动.bat` 运行。功能比正式版少，主要供开发调试使用。
 
 ## 许可证
 

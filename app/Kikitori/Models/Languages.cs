@@ -5,7 +5,7 @@ public sealed record LanguageOption(string Code, string Name)
     public override string ToString() => Name;
 }
 
-/// <summary>语言表：说话语言（语音识别用）和翻译目标语言，与 livetrans/languages.py 一致。</summary>
+/// <summary>语言表：说话语言（语音识别用）和翻译目标语言，与 engine/kikitori/languages.py 一致。</summary>
 public static class Languages
 {
     public static readonly IReadOnlyList<LanguageOption> Source =

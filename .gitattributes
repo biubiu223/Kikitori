@@ -8,9 +8,6 @@
 *.iss text eol=crlf
 *.isl text eol=crlf
 
-# cmd.exe 在中文 Windows 上按 GBK 读 .bat：仓库里存 UTF-8（GitHub 网页能正常显示），检出时自动转成 GBK
-*.bat text eol=crlf working-tree-encoding=GBK
-
 # 二进制
 *.png binary
 *.ico binary

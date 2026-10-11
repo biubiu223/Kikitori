@@ -1,15 +1,15 @@
-﻿# 一键打包引擎：PyInstaller onedir → build\engine\KikitoriEngine\KikitoriEngine.exe
+﻿# 一键打包引擎：PyInstaller onedir → <仓库>\build\engine\KikitoriEngine\KikitoriEngine.exe
 #
-# 用法（在任意目录）：
-#   powershell -ExecutionPolicy Bypass -File packaging\build_engine.ps1
-#   powershell -ExecutionPolicy Bypass -File packaging\build_engine.ps1 -Python D:\path\to\python.exe
-#   powershell -ExecutionPolicy Bypass -File packaging\build_engine.ps1 -BundleCuda     完整构建（开发用）
+# 用法（在任意目录；一般由仓库根目录的 build.ps1 调用）：
+#   powershell -ExecutionPolicy Bypass -File engine\packaging\build_engine.ps1
+#   powershell -ExecutionPolicy Bypass -File engine\packaging\build_engine.ps1 -Python D:\path\to\python.exe
+#   powershell -ExecutionPolicy Bypass -File engine\packaging\build_engine.ps1 -BundleCuda     完整构建（开发用）
 #
 # 默认是精简构建：不带 NVIDIA 运行库（约 2GB），首次用显卡时由引擎下载（见 docs/protocol.md 第 7 节）。
 # -BundleCuda：把 .venv 里的 NVIDIA DLL 一起打包，不需要下载。
-# 默认用仓库根目录下 .venv 里的 Python（需要已安装 requirements.txt 和 pyinstaller）。
-# 中间文件放在 build\pyinstaller-work\，都在 build\ 下，可以整个忽略/删除。
-# 显卡运行库清单 packaging\cuda_manifest.json 由 packaging\make_cuda_manifest.py 生成（升级 CUDA 包后重新生成）。
+# 默认用仓库根目录下 .venv 里的 Python（需要已安装 engine\requirements.txt 和 engine\requirements-build.txt）。
+# 中间文件放在 <仓库>\build\pyinstaller-work\，都在 build\ 下，可以整个忽略/删除。
+# 显卡运行库清单 engine\packaging\cuda_manifest.json 由 engine\packaging\make_cuda_manifest.py 生成（升级 CUDA 包后重新生成）。
 param(
     [string]$Python = "",
     [switch]$BundleCuda,
@@ -17,9 +17,12 @@ param(
 )
 $ErrorActionPreference = "Stop"
 
-$Root = Split-Path -Parent $PSScriptRoot           # 仓库根目录（engine_server.py 所在目录）
+$EngineDir = Split-Path -Parent $PSScriptRoot      # engine\（engine_server.py 所在目录）
+$Root = Split-Path -Parent $EngineDir              # 仓库根目录（.venv、build\ 所在目录）
 if (-not $Python) { $Python = Join-Path $Root ".venv\Scripts\python.exe" }
-if (-not (Test-Path $Python)) { throw "找不到 Python：$Python（先运行 安装.bat 或用 -Python 指定）" }
+if (-not (Test-Path $Python)) {
+    throw "找不到 Python：$Python（先在仓库根目录创建 .venv 并安装 engine\requirements.txt，或用 -Python 指定）"
+}
 
 $Spec = Join-Path $PSScriptRoot "engine.spec"
 $Dist = Join-Path $Root "build\engine"

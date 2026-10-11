@@ -1,13 +1,13 @@
-"""生成 packaging/cuda_manifest.json：显卡运行库（NVIDIA 在 PyPI 上发布的官方 wheel）的固定版本清单。
+"""生成 engine/packaging/cuda_manifest.json：显卡运行库（NVIDIA 在 PyPI 上发布的官方 wheel）的固定版本清单。
 
 用法（在仓库根目录，用打包引擎的同一个 Python 环境）：
-    .venv\\Scripts\\python.exe packaging\\make_cuda_manifest.py
+    .venv\\Scripts\\python.exe engine\\packaging\\make_cuda_manifest.py
 
 做的事：
   1. 查出当前环境里已安装的 nvidia-cublas-cu12 / nvidia-cudnn-cu12 / nvidia-cuda-nvrtc-cu12 的版本
   2. 到 PyPI JSON API 查这个版本的 win_amd64 wheel：文件名、packages/... 路径、大小、sha256
   3. 从本地安装记录（RECORD）里读出 wheel 里 nvidia/*/bin/*.dll 的文件名和大小（引擎用来检查是否装完整、估算磁盘空间）
-结果写进 packaging/cuda_manifest.json（提交进仓库；打包时一起带上，见 engine.spec）。
+结果写进 engine/packaging/cuda_manifest.json（提交进仓库；打包时一起带上，见 engine.spec）。
 引擎按清单下载，清单内容变了（升级 CUDA 版本）用户那边会自动重新下载。
 """
 
@@ -57,7 +57,7 @@ def main():
             try:
                 version = md.version(name)
             except md.PackageNotFoundError:
-                raise SystemExit(f"当前环境没有安装 {name}（先 pip install -r requirements.txt）")
+                raise SystemExit(f"当前环境没有安装 {name}（先 pip install -r engine\\requirements.txt）")
             info = wheel_info(client, name, version)
             dlls = local_dlls(name)
             if not dlls:
@@ -68,7 +68,7 @@ def main():
 
     manifest = {
         "format": 1,
-        "description": "Kikitori 显卡运行库清单（NVIDIA 官方 wheel，固定版本）。由 packaging/make_cuda_manifest.py 生成，不要手改。",
+        "description": "Kikitori 显卡运行库清单（NVIDIA 官方 wheel，固定版本）。由 engine/packaging/make_cuda_manifest.py 生成，不要手改。",
         "packages": packages,
     }
     OUT.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

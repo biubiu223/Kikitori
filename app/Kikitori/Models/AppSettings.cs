@@ -3,7 +3,7 @@ using Kikitori.Services;
 
 namespace Kikitori.Models;
 
-// settings.json 的结构。engine 部分与 docs/protocol.md 第 3 节的 config 一一对应（默认值同原 config.toml），
+// settings.json 的结构。engine 部分与 docs/protocol.md 第 3 节的 config 一一对应（默认值也相同），
 // 只是 API Key 以 DPAPI 密文（api_key_protected）保存；ui 部分是界面自己的设置。
 
 public sealed class AppSettings
@@ -151,7 +151,7 @@ public sealed class OverlaySettings
     public int? Bottom { get; set; }
     public int? Width { get; set; }
 
-    /// <summary>译文字号（磅，和原 config.toml 的 font_size 含义相同）。</summary>
+    /// <summary>译文字号（磅）。</summary>
     public double FontSize { get; set; } = 22;
     /// <summary>原文字号（磅）。</summary>
     public double SourceFontSize { get; set; } = 14;

@@ -3,9 +3,8 @@
   音频线程 ──► 断句(VAD) ──► 识别线程(Whisper, GPU) ──► 翻译线程池(LLM) ──► 事件接收方(sink)
                               │ 正式句优先，草稿只保留最新的
 
-引擎不直接操作任何界面，所有输出都通过 EventSink 的方法发出去：
-  - 悬浮字幕版（main.py）：OverlaySink 把事件转成 overlay.post_* 调用
-  - 无界面引擎进程（engine_server.py）：把事件写成 JSON Lines 发给 WinUI 界面（见 docs/protocol.md）
+引擎不直接操作界面，所有输出都通过 EventSink 的方法发出去；
+engine_server.py 把这些事件写成 JSON Lines 发给 WinUI 界面（见 docs/protocol.md）。
 """
 
 import math
@@ -58,60 +57,11 @@ class EventSink:
         """引擎状态：downloading_model / loading_model / warming_up / listening / paused / stopped / error …
         extra 里可以有 progress（0~1，下载进度）。"""
 
-    def notice(self, message: str, level: str = "info", timeout: float | None = 6.0):
-        """临时提示。timeout 是给界面的显示时长建议（None = 一直显示到下一条状态）。"""
+    def notice(self, message: str, level: str = "info"):
+        """临时提示（level：info / warn / error）。"""
 
     def level(self, rms: float):
         """音量（16k 单声道音频的 RMS，0~1）。"""
-
-
-class OverlaySink(EventSink):
-    """悬浮字幕版：把事件转给 tkinter 字幕窗口（overlay.post_* 都是线程安全的）。"""
-
-    # state -> (颜色, 显示几秒后消失；None = 一直显示)
-    _STATUS_STYLE = {
-        "downloading_model": ("warn", None),
-        "loading_model": ("warn", None),
-        "warming_up": ("warn", None),
-        "listening": ("info", 8),
-        "paused": ("warn", None),
-        "stopped": ("info", 5),
-        "idle": ("info", 5),
-        "error": ("error", None),
-    }
-
-    def __init__(self, overlay):
-        self.ui = overlay
-
-    def partial(self, seg_id, text):
-        self.ui.post_partial(seg_id, text)
-
-    def final(self, seg_id, text, lang, mode, ts):
-        if mode == MODE_SAME_LANGUAGE:
-            # 说的就是目标语言：原文行留空，直接当译文（大字）显示
-            self.ui.post_final(seg_id, "", pending=False)
-            self.ui.post_translation(seg_id, text)
-        else:
-            self.ui.post_final(seg_id, text, pending=(mode == MODE_TRANSLATING))
-
-    def translation(self, seg_id, text, ok, error=None, elapsed=None):
-        self.ui.post_translation(seg_id, text if ok and text else "（翻译失败）")
-
-    def remove(self, seg_id):
-        self.ui.post_remove(seg_id)
-
-    def status(self, state, message, level="info", **extra):
-        color, timeout = self._STATUS_STYLE.get(state, (level, None))
-        if state == "listening":
-            message = "▶ " + message
-        progress = extra.get("progress")
-        if state == "downloading_model" and progress is not None:
-            message = f"{message}  {progress:.0%}"
-        self.ui.post_status(message, color, timeout)
-
-    def notice(self, message, level="info", timeout=6.0):
-        prefix = {"info": "✔ ", "warn": "⚠ ", "error": "⚠ "}.get(level, "")
-        self.ui.post_status(prefix + message, level, timeout)
 
 
 # ======================================================================
@@ -361,14 +311,11 @@ def model_error_message(e: Exception, acfg: dict) -> str:
 class Engine:
     """一次“监听会话”：录音 → 断句 → 识别 → 翻译。
 
-    transcriber 不传时 boot() 里自己加载模型（悬浮字幕版）；
-    引擎进程传入已经加载好的模型，多次 start/stop 之间复用。
+    transcriber 是已经加载好的模型（由 engine_server 加载，多次 start/stop 之间复用）。
     """
 
-    def __init__(self, cfg: dict, sink: EventSink, make_source, log_dir: str | None = None,
-                 source_lang: str = "ja", target_lang: str = "zh-Hans",
-                 transcriber: Transcriber | None = None, log_path: str | None = None,
-                 id_gen=None, hints: str = "toml"):
+    def __init__(self, cfg: dict, sink: EventSink, make_source, transcriber: Transcriber, log_path: str,
+                 source_lang: str = "ja", target_lang: str = "zh-Hans", id_gen=None):
         self.cfg = cfg
         self.sink = sink
         self.make_source = make_source
@@ -376,14 +323,14 @@ class Engine:
         self.tgt_lang = target_lang     # 翻译成什么语言
 
         self.glossary = {str(k): str(v) for k, v in (cfg.get("glossary") or {}).items() if str(k).strip()}
-        self.translator = Translator(cfg, self.glossary, source_lang, target_lang, hints=hints)
+        self.translator = Translator(cfg, self.glossary, source_lang, target_lang)
         self.translate_on = False
         self.translate_error: str | None = None
         self.context_lines = int(cfg.get("translate", {}).get("context_lines", 4))
 
         self.audio_q: "queue.Queue" = queue.Queue()
         self.source = None
-        self.asr: Transcriber | None = transcriber
+        self.asr: Transcriber = transcriber
         self.segmenter: Segmenter | None = None
         self._id_gen = id_gen
 
@@ -410,18 +357,12 @@ class Engine:
         self._notice_last: dict[str, float] = {}
 
         # 字幕记录
-        if log_path is None:
-            log_path = os.path.join(log_dir or ".", datetime.now().strftime("%Y-%m-%d_%H%M%S") + ".txt")
         self._log_path = log_path
         self._log_lock = threading.Lock()
 
     # ------------------------------------------------------------------
-    def start(self):
-        """在后台线程里启动（悬浮字幕版用）。"""
-        threading.Thread(target=self.boot, daemon=True, name="boot").start()
-
     def boot(self) -> bool:
-        """同步执行：（需要时）加载模型 → 检查翻译配置 → 开始录音。成功开始监听返回 True。"""
+        """同步执行：检查翻译配置 → 开始录音。成功开始监听返回 True。"""
         try:
             return self._boot()
         except Exception as e:
@@ -433,19 +374,10 @@ class Engine:
     def _boot(self) -> bool:
         acfg = self.cfg.get("asr", {})
         vcfg = self.cfg.get("vad", {})
-        hotwords = " ".join(self.glossary.keys()) or None
-        if self.asr is None:
-            try:
-                self.asr = load_transcriber(acfg, self.src_lang, hotwords, self.sink)
-            except Exception as e:
-                traceback.print_exc()
-                self.sink.status("error", model_error_message(e, acfg), "error")
-                return False
-        else:
-            # 复用已经加载好的模型，只换这次的识别参数
-            self.asr.language = self.src_lang
-            self.asr.beam_size = int(acfg.get("beam_size", 5))
-            self.asr.hotwords = hotwords
+        # 复用已经加载好的模型，只换这次的识别参数
+        self.asr.language = self.src_lang
+        self.asr.beam_size = int(acfg.get("beam_size", 5))
+        self.asr.hotwords = " ".join(self.glossary.keys()) or None
         if self._stop.is_set():
             return False
 
@@ -499,9 +431,9 @@ class Engine:
             else:
                 self.sink.status("listening", msg)
         if getattr(src, "warning", ""):
-            self.sink.notice(src.warning, "warn", 8)
+            self.sink.notice(src.warning, "warn")
         if err:
-            self.sink.notice(f"{err}（目前只显示原文）", "error", None)
+            self.sink.notice(f"{err}（目前只显示原文）", "error")
         return True
 
     # ------------------------------------------------------------------
@@ -677,7 +609,7 @@ class Engine:
             if now - self._notice_last.get(message, -1e9) < every:
                 return
             self._notice_last[message] = now
-        self.sink.notice(message, level, 10)
+        self.sink.notice(message, level)
 
     def _write_log(self, ts: float, src: str, dst: str | None):
         line = f"[{datetime.fromtimestamp(ts).strftime('%H:%M:%S')}] {src}\n"
@@ -724,15 +656,14 @@ class Engine:
             return True
 
     def set_languages(self, source: str, target: str):
-        """切换语言（右键菜单 / 界面命令），马上对下一句生效，不用重启。"""
+        """运行中切换语言，马上对下一句生效，不用重启。"""
         self.src_lang, self.tgt_lang = source, target
-        if self.asr is not None:
-            self.asr.language = source
+        self.asr.language = source
         self.translator.set_languages(source, target)
         with self._hist_lock:
             self._history.clear()   # 旧语言的上文对新语言没用，反而会干扰
         print("[engine] 切换语言：", self.lang_desc())
-        self.sink.notice(f"已切换：{self.lang_desc()}", "info", 4)
+        self.sink.notice(f"已切换：{self.lang_desc()}", "info")
 
     def set_paused(self, paused: bool) -> bool:
         """暂停/继续识别（录音不停，只是丢弃音频）。返回是否已经在监听。"""
@@ -740,8 +671,8 @@ class Engine:
             self.paused = paused
             return self.running
 
-    def reconnect_sync(self) -> bool:
-        """重新连接音频设备（同步执行）。"""
+    def reconnect(self) -> bool:
+        """重新连接音频设备（同步执行，调用方自己放到后台线程）。"""
         src = self.source
         if src is None:
             self.sink.notice("还没有开始录音", "warn")
@@ -761,13 +692,10 @@ class Engine:
                 return False
             self.running = True
         print("[engine] 已重新连接：", src.device_name)
-        self.sink.notice(f"已重新连接：{src.device_name}", "info", 5)
+        self.sink.notice(f"已重新连接：{src.device_name}", "info")
         if getattr(src, "warning", ""):
-            self.sink.notice(src.warning, "warn", 8)
+            self.sink.notice(src.warning, "warn")
         return True
-
-    def reconnect(self):
-        threading.Thread(target=self.reconnect_sync, daemon=True, name="reconnect").start()
 
     def stop(self):
         with self._lock:

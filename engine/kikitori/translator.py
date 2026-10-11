@@ -1,6 +1,5 @@
 """直播同传翻译：调用大模型（DeepSeek / 本地 Ollama / 其它 OpenAI 兼容接口）。"""
 
-import os
 import re
 import threading
 
@@ -53,27 +52,15 @@ class TranslatorError(Exception):
     pass
 
 
-# 出错提示里告诉用户去哪里改设置："toml" = 悬浮字幕版（改 config.toml），"ui" = 新界面（设置页）
-HINTS = {
-    "toml": {
-        "no_key": "没有填 DeepSeek API Key：请在 config.toml 的 [translate.deepseek] 里填写 api_key",
-        "need_url": "openai_compatible 需要在 config.toml 里填写 base_url 和 model",
-        "bad_key": "API Key 无效（401），请检查 config.toml 里的 api_key",
-        "truncated": "模型输出被截断（可能开启了思考模式），请检查 config.toml",
-    },
-    "ui": {
-        "no_key": "没有填 DeepSeek API Key：请在 设置 → 翻译 里填写",
-        "need_url": "OpenAI 兼容接口需要在 设置 → 翻译 里填写接口地址（base_url）和模型名",
-        "bad_key": "API Key 无效（401），请在 设置 → 翻译 里检查",
-        "truncated": "模型输出被截断（可能开启了思考模式），请检查翻译设置",
-    },
-}
+# 给用户看的出错提示（告诉用户去界面的哪里改设置）
+MSG_NO_KEY = "没有填 DeepSeek API Key：请在 设置 → 翻译 里填写"
+MSG_NEED_URL = "OpenAI 兼容接口需要在 设置 → 翻译 里填写接口地址（base_url）和模型名"
+MSG_BAD_KEY = "API Key 无效（401），请在 设置 → 翻译 里检查"
+MSG_TRUNCATED = "模型输出被截断（可能开启了思考模式），请检查翻译设置"
 
 
 class Translator:
-    def __init__(self, cfg: dict, glossary: dict[str, str], source: str = "ja", target: str = "zh-Hans",
-                 hints: str = "toml"):
-        self.hints = HINTS.get(hints, HINTS["toml"])
+    def __init__(self, cfg: dict, glossary: dict[str, str], source: str = "ja", target: str = "zh-Hans"):
         tcfg = cfg.get("translate", {})
         self.provider = tcfg.get("provider", "deepseek").strip().lower()
         self.enabled = self.provider not in ("off", "none", "")
@@ -83,8 +70,6 @@ class Translator:
         self.base_url = (sub.get("base_url") or "").rstrip("/")
         self.temperature = float(sub.get("temperature", 0.7))
         self.api_key = (sub.get("api_key") or "").strip()
-        if self.provider == "deepseek" and not self.api_key:
-            self.api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
         # DeepSeek 新模型默认会先“思考”再回答：慢好几倍，还可能把输出额度用光导致译文为空。同传必须关掉。
         self.extra_body = {}
         if self.provider == "deepseek" and not sub.get("thinking", False):
@@ -108,7 +93,7 @@ class Translator:
             return None
         if self.provider == "deepseek":
             if not self.api_key:
-                return self.hints["no_key"]
+                return MSG_NO_KEY
             return self._check_models_endpoint()
         if self.provider == "ollama":
             try:
@@ -123,7 +108,7 @@ class Translator:
             return None
         if self.provider == "openai_compatible":
             if not (self.base_url and self.model):
-                return self.hints["need_url"]
+                return MSG_NEED_URL
             return self._check_models_endpoint()
         return f"未知的翻译引擎：{self.provider}"
 
@@ -136,7 +121,7 @@ class Translator:
             print("[translate] 启动检查时连不上翻译服务（先继续运行）：", e)
             return None
         if r.status_code == 401:
-            return self.hints["bad_key"]
+            return MSG_BAD_KEY
         if r.status_code != 200:
             return None
         try:
@@ -216,7 +201,7 @@ class Translator:
         }
         r = self._client().post(url, json=body, headers=headers)
         if r.status_code == 401:
-            raise TranslatorError(self.hints["bad_key"])
+            raise TranslatorError(MSG_BAD_KEY)
         if r.status_code == 402:
             raise TranslatorError("API 账户余额不足（402）")
         if r.status_code in (400, 404, 422):
@@ -230,7 +215,7 @@ class Translator:
         choice = r.json()["choices"][0]
         content = choice["message"].get("content") or ""
         if not content.strip() and choice.get("finish_reason") == "length":
-            raise TranslatorError(self.hints["truncated"])
+            raise TranslatorError(MSG_TRUNCATED)
         return content
 
     def _call_ollama(self, messages) -> str:
