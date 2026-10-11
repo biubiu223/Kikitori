@@ -1,0 +1,101 @@
+# ============================================================
+#  直播同声传译 · 配置文件
+#  修改后重新启动程序生效。# 号开头的行是注释。
+# ============================================================
+
+[translate]
+# 翻译引擎，可选：
+#   "deepseek"          —— DeepSeek API（推荐，需要 API Key）
+#   "ollama"            —— 本地 Ollama 大模型（免费离线，需先安装 Ollama 并下载模型）
+#   "openai_compatible" —— 其它兼容 OpenAI 接口的服务（通义千问、Kimi、OpenAI 等）
+#   "off"               —— 不翻译，只显示日文识别结果
+provider = "deepseek"
+
+# 翻译成什么语言（也可以在字幕条上 右键 →「翻译成」随时切换）：
+#   "zh-Hans" 简体中文 / "zh-Hant" 繁體中文 / "en" English / "ja" 日本語 / "ko" 한국어
+target_language = "zh-Hans"
+
+# 翻译时参考前面几句话（让上下文更连贯，0 = 不参考）
+context_lines = 4
+
+[translate.deepseek]
+# 在 https://platform.deepseek.com 申请 API Key，填在下面引号里
+# （也可以不填这里，改为设置系统环境变量 DEEPSEEK_API_KEY）
+api_key = ""
+base_url = "https://api.deepseek.com"
+# 可用模型："deepseek-flash"（快、便宜，推荐同传用）/ "deepseek-v4-pro"（更强但更慢更贵）
+model = "deepseek-flash"
+# DeepSeek 官方建议翻译任务用 1.3
+temperature = 1.3
+
+[translate.ollama]
+# 先安装 Ollama（https://ollama.com），然后在命令行运行：ollama pull qwen3:8b
+# 显存够的话可以换成 "qwen3:14b"（更准，但和 Whisper 一起跑显存会比较紧）
+base_url = "http://localhost:11434"
+model = "qwen3:8b"
+temperature = 0.3
+
+[translate.openai_compatible]
+base_url = ""      # 例如 "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key = ""
+model = ""         # 例如 "qwen-plus"
+temperature = 0.7
+
+
+[asr]
+# 语音识别模型（第一次使用会自动下载，约 1.5–3GB）：
+#   "large-v3"        —— 最准（推荐）
+#   "large-v3-turbo"  —— 更快，日语稍差一点
+#   "kotoba-tech/kotoba-whisper-v2.0-faster" —— 日语专用蒸馏版，很快
+model = "large-v3"
+device = "cuda"            # 有 NVIDIA 显卡用 "cuda"，否则 "cpu"（会很慢）
+# 显存紧张（比如同时跑本地 Ollama 14B 模型）可以改成 "int8_float16"
+compute_type = "float16"
+# 主播说的语言（也可以在字幕条上 右键 →「说话语言」随时切换）：
+#   "ja" 日语 / "en" 英语 / "ko" 韩语 / "zh" 中文 / "ru" 俄语 / "fr" 法语 / "es" 西班牙语 / "de" 德语
+#   "auto" 自动识别（每句话自动判断，适合混着说多种语言的主播；比指定语言稍微容易认错）
+language = "ja"
+beam_size = 5
+# 说话过程中先显示日文“草稿”（每隔约 1 秒刷新一次），说完一句再出翻译
+show_partial = true
+partial_interval = 1.0
+
+
+[vad]
+# 人声检测灵敏度 0~1，越高越不容易把背景音乐当成人声（BGM 很吵时可以调到 0.6）
+threshold = 0.5
+# 停顿多少毫秒算一句话说完（调小 = 出字更快但句子更碎）
+min_silence_ms = 500
+# 一句话最长多少秒就强制切开送去识别（主播一直不停顿时用）
+max_segment_s = 8.0
+# 短于多少毫秒的声音忽略（过滤咳嗽、点击声）
+min_speech_ms = 250
+
+
+[audio]
+# 留空 = 录制“默认播放设备”的声音（也就是你耳机/音箱里听到的）
+# 如果要指定设备，填设备名的一部分，例如 "耳机" 或 "Realtek"
+# 运行 “列出音频设备.bat” 可以查看所有设备名
+device = ""
+
+
+[overlay]
+# 同时显示几条字幕
+max_lines = 3
+font_size = 22          # 译文字号
+ja_font_size = 14       # 原文字号
+show_japanese = true    # 是否显示原文
+opacity = 0.80          # 窗口不透明度 0.3~1.0
+align = "left"          # 对齐方式："left" 左对齐 / "center" 居中
+width = 960             # 窗口宽度（高度会随字幕内容自动伸缩）
+# 这些设置也可以在字幕窗口上【右键】修改；窗口位置、宽度和右键改过的设置会被自动记住
+# （记在 window_state.json 里，想恢复默认就删掉那个文件）
+
+
+# 专有名词对照表：主播名字、粉丝名、固定梗等。
+# 会同时提示给语音识别（提高识别准确率）和翻译（统一译名）。
+# 格式："日文" = "中文"，每行一个。去掉前面的 # 即可启用。
+[glossary]
+# "兎田ぺこら" = "兔田佩克拉"
+# "ぺこーら" = "佩克拉"
+# "野うさぎ" = "野兔（粉丝）"
