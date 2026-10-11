@@ -44,7 +44,27 @@
                         <TextBlock x:Name="StateMessage" Style="{StaticResource BodyTextBlockStyle}" TextWrapping="Wrap" MaxLines="3"
                                    TextTrimming="CharacterEllipsis" IsTextSelectionEnabled="True"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        <ProgressBar x:Name="DownloadBar" Visibility="Collapsed" Maximum="1" Margin="0,8,0,0" />
+                        <!-- 首次运行下载（显卡运行库 / 识别模型）：进度条 + 百分比 + 说明 -->
+                        <StackPanel x:Name="DownloadPanel" Visibility="Collapsed" Margin="0,10,0,0" Spacing="4">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <ProgressBar x:Name="DownloadBar" Maximum="1" VerticalAlignment="Center" />
+                                <TextBlock x:Name="DownloadPercent" Grid.Column="1" MinWidth="40" TextAlignment="Right"
+                                           Style="{StaticResource BodyStrongTextBlockStyle}" />
+                            </Grid>
+                            <TextBlock x:Name="DownloadHint" Text="只需下载一次，之后启动不用再下" Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                        </StackPanel>
+                        <!-- 出错（例如没有 NVIDIA 显卡、下载失败）：去语音识别设置换下载源或改用 CPU -->
+                        <Button x:Name="OpenAsrSettingsButton" Visibility="Collapsed" Margin="0,10,0,0" Click="OpenAsrSettings_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE713;" FontSize="14" />
+                                <TextBlock Text="打开语音识别设置" />
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
 
                     <Button x:Name="StartStopButton" Grid.Column="2" MinWidth="150" Height="46" Padding="20,0"

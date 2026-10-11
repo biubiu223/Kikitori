@@ -66,6 +66,8 @@ public sealed partial class HomePage : Page
 
     private void GoSetup_Click(object sender, RoutedEventArgs e) => App.Current.MainWindow?.Navigate("translate");
 
+    private void OpenAsrSettings_Click(object sender, RoutedEventArgs e) => App.Current.MainWindow?.Navigate("asr");
+
     // ------------------------------------------------------------------ 状态
     private void UpdateState()
     {
@@ -79,15 +81,16 @@ public sealed partial class HomePage : Page
         StateMessage.Text = message;
         StateMessage.Visibility = string.IsNullOrWhiteSpace(message) ? Visibility.Collapsed : Visibility.Visible;
 
-        bool busy = state is "starting" or "loading_model" or "warming_up" or "downloading_model";
+        bool downloading = _ctl.IsDownloading;
+        bool busy = state is "starting" or "loading_model" or "warming_up" || downloading;
         StateRing.IsActive = busy;
-        StateIcon.Visibility = busy && state != "downloading_model" ? Visibility.Collapsed : Visibility.Visible;
+        StateIcon.Visibility = busy && !downloading ? Visibility.Collapsed : Visibility.Visible;
         (string glyph, string brushKey) = state switch
         {
             _ when paused => ("", "StatePausedBrush"),
             "listening" => ("", "StateListeningBrush"),
             "paused" => ("", "StatePausedBrush"),
-            "downloading_model" => ("", "StateBusyBrush"),
+            "downloading_model" or "downloading_runtime" => ("", "StateBusyBrush"),
             "starting" or "loading_model" or "warming_up" => ("", "StateBusyBrush"),
             "error" or "not_running" => ("", "StateErrorBrush"),
             "stopped" => ("", "StateIdleBrush"),
@@ -98,11 +101,22 @@ public sealed partial class HomePage : Page
         StateIcon.Foreground = brush;
         StateRing.Foreground = brush;
 
-        DownloadBar.Visibility = state == "downloading_model" ? Visibility.Visible : Visibility.Collapsed;
-        if (_ctl.Progress is double p) { DownloadBar.IsIndeterminate = false; DownloadBar.Value = p; }
+        DownloadPanel.Visibility = downloading ? Visibility.Visible : Visibility.Collapsed;
+        if (_ctl.Progress is double p) { DownloadBar.IsIndeterminate = false; DownloadBar.Value = Math.Clamp(p, 0, 1); }
         else DownloadBar.IsIndeterminate = true;
+        DownloadPercent.Text = _ctl.ProgressText;
 
-        if (_ctl.DesiredListening)
+        // 出错时（没有 NVIDIA 显卡、下载失败…）给个入口去换下载源或改用 CPU
+        OpenAsrSettingsButton.Visibility = state == "error" ? Visibility.Visible : Visibility.Collapsed;
+
+        if (_ctl.DesiredListening && downloading)
+        {
+            // 下载期间“停止”就是取消下载（已下载的部分引擎会保留，下次接着下）
+            StartStopText.Text = "取消下载";
+            StartStopIcon.Glyph = "";
+            StartStopButton.Style = (Style)Application.Current.Resources["DefaultButtonStyle"];
+        }
+        else if (_ctl.DesiredListening)
         {
             StartStopText.Text = "停止监听";
             StartStopIcon.Glyph = "";
@@ -116,7 +130,7 @@ public sealed partial class HomePage : Page
         }
 
         _loading = true;
-        PauseToggle.IsEnabled = _ctl.DesiredListening && _ctl.EngineReady;
+        PauseToggle.IsEnabled = _ctl.DesiredListening && _ctl.EngineReady && listeningLike;
         PauseToggle.IsOn = _ctl.Paused;
         _loading = false;
         if (!listeningLike) UpdateLevel(0);

@@ -106,6 +106,8 @@ public static class SettingsService
         v.MinSpeechMs = Math.Clamp(v.MinSpeechMs, 0, 2000);
         e.Audio.Device ??= "";
         e.Audio.File ??= "";
+        e.Download ??= new();
+        if (e.Download.Source is not ("auto" or "official" or "china")) e.Download.Source = "auto";
         e.Glossary.RemoveAll(g => g is null);
         foreach (var g in e.Glossary) { g.Source ??= ""; g.Target ??= ""; }
 
@@ -207,6 +209,10 @@ public static class SettingsService
             {
                 ["device"] = e.Audio.Device,
                 ["file"] = e.Audio.File,
+            },
+            ["download"] = new JsonObject
+            {
+                ["source"] = e.Download.Source,
             },
             ["glossary"] = glossary,
             ["log_dir"] = AppPaths.SubtitleDir,

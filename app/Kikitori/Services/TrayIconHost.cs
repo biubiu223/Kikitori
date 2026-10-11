@@ -64,9 +64,12 @@ public sealed class TrayIconHost : IDisposable
         _miPause.Text = _ctl.Paused ? "继续识别" : "暂停识别";
         _miPause.IsEnabled = _ctl.DesiredListening;
         var tip = $"{AppPaths.AppName} · {AppController.StateTitle(_ctl.EngineState)}";
-        if (_ctl.Paused) tip = $"{AppPaths.AppName} · 已暂停";
-        _icon.ToolTipText = tip;
+        if (_ctl.IsDownloading && _ctl.ProgressText.Length > 0) tip += " " + _ctl.ProgressText;   // 例如“正在下载显卡运行库 31%”
+        if (_ctl.Paused && _ctl.EngineState is "listening" or "paused") tip = $"{AppPaths.AppName} · 已暂停";
+        if (tip != _icon.ToolTipText) _icon.ToolTipText = tip;
     }
+
+    public string ToolTip => _icon.ToolTipText ?? "";
 
     public void ToggleOverlay() => _ctl.SetOverlayVisible(!SettingsService.Current.Ui.ShowOverlay);
 

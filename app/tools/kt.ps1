@@ -233,6 +233,17 @@ public static class KtMouse {
 "@
 }
 
+# Select the n-th item (0-based) of a ComboBox through UI Automation.
+function Select-UiaComboIndex($Combo, [int]$Index) {
+    Expand-Uia $Combo; Start-Sleep -Milliseconds 500
+    $items = $Combo.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+        (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::ListItem)))
+    $items[$Index].GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+    Start-Sleep -Milliseconds 400
+    $p = $null
+    if ($Combo.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$p)) { try { $p.Collapse() } catch { } }
+}
+
 function Get-EngineProcesses {
     Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine -match 'mock_engine\.py' }
 }

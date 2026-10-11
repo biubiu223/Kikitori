@@ -462,7 +462,9 @@ public sealed partial class OverlayWindow : Window
             "not_running" => ("⚠ 识别引擎没有运行（右键 →「打开主窗口」可重启引擎）", "error"),
             "starting" => ("正在启动识别引擎…", "info"),
             "idle" => (_ctl.DesiredListening ? "正在准备…" : "未开始监听（右键 →「打开主窗口」→「开始监听」）", _ctl.DesiredListening ? "info" : "warn"),
-            "downloading_model" => ((msg.Length > 0 ? msg : "正在下载语音识别模型…") + (_ctl.Progress is double pr ? $" {pr * 100:0}%" : ""), "info"),
+            // 首次运行下载：百分比放最前面，消息太长被截断时也能看到进度
+            "downloading_runtime" => (DownloadLine("正在下载显卡运行库", msg), "info"),
+            "downloading_model" => (DownloadLine("正在下载识别模型", msg), "info"),
             "loading_model" or "warming_up" => (msg.Length > 0 ? msg : "正在加载语音识别模型…", "info"),
             "listening" when pausedNow => ("⏸ 已暂停（右键 → 取消「暂停识别」继续）", "warn"),
             "listening" => ("", "info"),
@@ -483,6 +485,13 @@ public sealed partial class OverlayWindow : Window
             ShowTemp("▶ 继续识别", "info", 3);
         _lastState = state;
         UpdateStatus();
+    }
+
+    private string DownloadLine(string title, string msg)
+    {
+        var pct = _ctl.ProgressText;
+        var head = pct.Length > 0 ? $"⬇ {pct} " : "⬇ ";
+        return head + (msg.Length > 0 ? msg : title + "（只需一次）…");
     }
 
     private void ShowTemp(string text, string level, double seconds)

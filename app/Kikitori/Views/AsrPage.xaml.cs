@@ -29,6 +29,7 @@ public sealed partial class AsrPage : Page
         }
         SelectByTag(DeviceCombo, e.Asr.Device);
         SelectByTag(ComputeCombo, e.Asr.ComputeType);
+        SelectByTag(SourceCombo, e.Download.Source);
         PartialToggle.IsOn = e.Asr.ShowPartial;
         ThresholdSlider.Value = e.Vad.Threshold;
         SilenceSlider.Value = e.Vad.MinSilenceMs;
@@ -72,6 +73,12 @@ public sealed partial class AsrPage : Page
     {
         if (_loading || sender is not ComboBox { SelectedItem: ComboBoxItem { Tag: string tag } } combo) return;
         var asr = E.Asr;
+        if (ReferenceEquals(combo, SourceCombo))
+        {
+            // 下载源：和其它识别设置一样，防抖后重发 start
+            Set(E.Download.Source, tag, v => E.Download.Source = v);
+            return;
+        }
         if ((ReferenceEquals(combo, ModelCombo) && asr.Model == tag) || (ReferenceEquals(combo, DeviceCombo) && asr.Device == tag)
             || (ReferenceEquals(combo, ComputeCombo) && asr.ComputeType == tag)) return;
         if (ReferenceEquals(combo, ModelCombo)) asr.Model = tag;

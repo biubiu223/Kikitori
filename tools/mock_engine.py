@@ -5,10 +5,16 @@
 界面里设置环境变量 KIKITORI_ENGINE='"python.exe" "<仓库目录>\\tools\\mock_engine.py"' 即可对接。
 
 会循环播放一组示例句子：草稿逐步变长 → final → 译文；偶尔模拟“噪音被删除”“翻译失败”“同语言不翻译”。
+
+用环境变量模拟首次运行下载（docs/protocol.md 第 7 节），不设置时行为不变：
+    MOCK_FIRST_RUN=1   第一次 start：GPU 模式先模拟约 6 秒 downloading_runtime，再模拟约 4 秒 downloading_model。
+                       下载中收到 stop 会取消（进度保留，下次 start 接着下）。
+    MOCK_NO_GPU=1      asr.device=cuda 时直接 status error（没有 NVIDIA 显卡）；device=cpu 时正常。
 """
 
 import json
 import math
+import os
 import random
 import sys
 import threading
@@ -55,8 +61,17 @@ LANG_NAMES = {"ja": "日语", "en": "英语", "ko": "韩语", "zh": "中文", "r
               "zh-Hans": "简体中文", "zh-Hant": "繁體中文", "ko-KR": "한국어"}
 
 
+FIRST_RUN = os.environ.get("MOCK_FIRST_RUN") == "1"
+NO_GPU = os.environ.get("MOCK_NO_GPU") == "1"
+RUNTIME_SOURCES = {"official": "PyPI 官方", "china": "清华镜像", "auto": "清华镜像（自动选择）"}
+MODEL_SOURCES = {"official": "huggingface.co", "china": "hf-mirror.com", "auto": "hf-mirror.com（自动选择）"}
+
+
 class Mock:
     def __init__(self):
+        self.runtime_done = not FIRST_RUN
+        self.model_done = not FIRST_RUN
+        self.progress = {"runtime": 0.0, "model": 0.0}
         self.running = False
         self.paused = False
         self.config = {}
@@ -80,7 +95,26 @@ class Mock:
         self._gen += 1
         gen = self._gen
 
+        asr = self.config.get("asr", {})
+        device = asr.get("device", "cuda")
+        source = self.config.get("download", {}).get("source", "auto")
+        log(f"start: device={device} download.source={source}")
+
         def run():
+            if device == "cuda" and NO_GPU:
+                emit(event="status", state="error", level="error",
+                     message="没有检测到 NVIDIA 显卡（或驱动），请在 设置 → 语音识别 里把设备改成 CPU")
+                return
+            if device == "cuda" and not self.runtime_done:
+                if not self.download(gen, "runtime", 6.0, 1310, RUNTIME_SOURCES.get(source, source)):
+                    return
+                self.runtime_done = True
+            if not self.model_done:
+                if not self.download(gen, "model", 4.0, 3020, MODEL_SOURCES.get(source, source)):
+                    return
+                self.model_done = True
+            if gen != self._gen:
+                return
             if not self.model_loaded:
                 emit(event="status", state="loading_model", message="正在加载语音识别模型…", level="info")
                 time.sleep(1.5)
@@ -100,6 +134,24 @@ class Mock:
             self.subtitle_loop(gen)
 
         threading.Thread(target=run, daemon=True).start()
+
+    def download(self, gen, kind, seconds, total_mb, source_name):
+        """模拟下载：每 0.5 秒发一次进度；gen 变了（stop/新的 start）就中止，进度保留，下次续传。"""
+        state = "downloading_runtime" if kind == "runtime" else "downloading_model"
+        what = "显卡运行库" if kind == "runtime" else "识别模型 large-v3"
+        step = 0.5 / seconds
+        while True:
+            if gen != self._gen:
+                log(f"{kind} download cancelled at {self.progress[kind]:.0%}")
+                return False
+            p = min(1.0, self.progress[kind])
+            emit(event="status", state=state, level="info", progress=round(p, 3),
+                 message=f"正在下载{what}（只需一次）：{int(total_mb * p)} / {total_mb} MB · {source_name}")
+            if p >= 1.0:
+                return True
+            time.sleep(0.5)
+            if gen == self._gen:
+                self.progress[kind] = min(1.0, self.progress[kind] + step)
 
     def stop(self):
         self._gen += 1

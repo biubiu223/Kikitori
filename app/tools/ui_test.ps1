@@ -6,6 +6,15 @@
 param([string]$Exe = "", [switch]$NoMouse)
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "kt.ps1")
+# a failing run must never leave the app (or mock env vars) behind
+trap {
+    Write-Host "ERROR: $_"
+    foreach ($pr in @(Get-Process Kikitori -ErrorAction SilentlyContinue)) {
+        try { Invoke-Hook $pr.Id "exit" 2000 | Out-Null } catch { Stop-Process -Id $pr.Id -Force -ErrorAction SilentlyContinue }
+    }
+    $env:MOCK_FIRST_RUN = $null; $env:MOCK_NO_GPU = $null
+    break
+}
 if (-not $Exe) { $Exe = Get-KtExe }
 
 $results = New-Object System.Collections.ArrayList
@@ -32,6 +41,7 @@ $FAILED_TEXT = U "FF08 7FFB 8BD1 5931 8D25 FF09"   # full-width brackets + "tran
 $settingsFile = Join-Path $script:KtData "settings.json"
 
 if (Get-Process Kikitori -ErrorAction SilentlyContinue) { throw "Kikitori is already running; close it first." }
+Remove-Item Env:MOCK_FIRST_RUN, Env:MOCK_NO_GPU -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force $script:KtData -ErrorAction SilentlyContinue
 Remove-Item -Force (Join-Path $script:KtShots "*.png") -ErrorAction SilentlyContinue
 
@@ -238,6 +248,87 @@ Invoke-Hook $id "tray_menu #3" | Out-Null
 Check "exit via tray menu" (Wait-Until { -not (Get-Process -Id $id -ErrorAction SilentlyContinue) } 8)
 Start-Sleep 1
 Check "no engine process left after second exit" (@(Get-EngineProcesses).Count -eq 0)
+
+
+# ------------------------------------------------------------------ 12. first-run downloads (mock: MOCK_FIRST_RUN=1)
+$T_DL_RUNTIME = U "6B63 5728 4E0B 8F7D 663E 5361 8FD0 884C 5E93"   # downloading GPU runtime
+$T_DL_MODEL = U "6B63 5728 4E0B 8F7D 8BC6 522B 6A21 578B"           # downloading ASR model
+$T_CANCEL_DL = U "53D6 6D88 4E0B 8F7D"                              # cancel download
+$dlData = Join-Path $script:KtRepo "build\testdata_dl"
+$dlLog = Join-Path $dlData "logs\engine.log"
+Remove-Item -Recurse -Force $dlData -ErrorAction SilentlyContinue
+$env:MOCK_FIRST_RUN = "1"
+try {
+    $p = Start-Kikitori -Exe $Exe -DataDir $dlData
+    $script:id = $p.Id
+    [void](Wait-Hook $id 30)
+    Invoke-Hook $id "main_rect 560 20 1100 1040" | Out-Null
+    Nav "home"
+    Check "download: downloading_runtime with progress" (Wait-Until { $x = St; $x.engine_state -eq "downloading_runtime" -and $x.progress -gt 0.1 } 10)
+    $root = MainRoot
+    Check "download: home title = downloading GPU runtime" ((Find-Uia $root -AutomationId "StateTitle").Current.Name -eq $T_DL_RUNTIME)
+    Check "download: home shows percent + 'only once' hint + engine message" (
+        (Find-Uia $root -AutomationId "DownloadPercent").Current.Name -match '^\d+%$' -and
+        (Find-Uia $root -AutomationId "DownloadHint").Current.BoundingRectangle.Height -gt 0 -and
+        (Find-Uia $root -AutomationId "StateMessage").Current.Name -match 'MB')
+    Check "download: start/stop button reads 'cancel download'" ((Find-Uia $root -AutomationId "StartStopText").Current.Name -eq $T_CANCEL_DL)
+    Check "download: overlay status line shows percent" ((Invoke-Hook $id overlay_lines).status -match '\d+%')
+    Check "download: tray tooltip shows percent" ((St).tray_tooltip -match '\d+%') "$((St).tray_tooltip)"
+    Shot "13_downloading_runtime"; Shot "13b_overlay_downloading" overlay 8
+
+    Invoke-Uia (Find-Uia (MainRoot) -AutomationId "StartStopButton")
+    Check "download: cancel -> engine stopped" (Wait-Until { (St).engine_state -eq "stopped" } 3)
+    $cancelRx = "runtime download cancelled at (\d+)%"
+    [void](Wait-Until { (Get-Content $dlLog -Raw -Encoding UTF8) -match $cancelRx } 3)
+    $m = [regex]::Match((Get-Content $dlLog -Raw -Encoding UTF8), $cancelRx)
+    $pCancel = if ($m.Success) { [double]$m.Groups[1].Value / 100 } else { 0 }
+    Check "download: engine reports the download as cancelled" $m.Success
+    Start-Sleep 1.5
+    Check "download: no more progress after cancel" ((St).engine_state -eq "stopped" -and -not (St).desired_listening) "cancelled at $pCancel"
+
+    Nav "asr"
+    Select-UiaComboIndex (Find-Uia (MainRoot) -AutomationId "SourceCombo") 2
+    Start-Sleep 0.8
+    $src = (Get-Content (Join-Path $dlData "settings.json") -Raw -Encoding UTF8 | ConvertFrom-Json).engine.download.source
+    Check "download source 'china' saved to settings.json" ($src -eq "china" -and (St).download_source -eq "china")
+    Nav "home"
+    Invoke-Uia (Find-Uia (MainRoot) -AutomationId "StartStopButton")
+    Check "download: restart resumes from saved progress" (Wait-Until { $x = St; $x.engine_state -eq "downloading_runtime" -and $x.progress -ge ($pCancel - 0.001) } 5)
+    Check "download source is in the start config" ((Get-Content $dlLog -Raw -Encoding UTF8) -match "start: device=cuda download.source=china")
+    Check "download: model download shown" (Wait-Until { $x = St; $x.engine_state -eq "downloading_model" -and (Find-Uia (MainRoot) -AutomationId "StateTitle" -TimeoutMs 500).Current.Name -eq $T_DL_MODEL } 15)
+    Shot "13c_downloading_model"
+    Check "download: listening after both downloads" (Wait-Until { (St).engine_state -eq "listening" } 15)
+    Check "download: progress UI hidden once listening" (Wait-Until { try { (Find-Uia (MainRoot) -AutomationId "DownloadPanel" -TimeoutMs 300).Current.BoundingRectangle.Height -lt 1 } catch { $true } } 3)
+    Nav "asr"
+    Select-UiaComboIndex (Find-Uia (MainRoot) -AutomationId "SourceCombo") 1
+    Check "changing download source while listening re-sends start (debounced)" (Wait-Until { (Get-Content $dlLog -Raw -Encoding UTF8) -match "start: device=cuda download.source=official" } 4)
+    Invoke-Hook $id exit | Out-Null
+    Check "download session: exit" (Wait-Until { -not (Get-Process -Id $id -ErrorAction SilentlyContinue) } 8)
+} finally { Remove-Item Env:MOCK_FIRST_RUN -ErrorAction SilentlyContinue }
+
+# ------------------------------------------------------------------ 13. error state (mock: MOCK_NO_GPU=1)
+$ngData = Join-Path $script:KtRepo "build\testdata_nogpu"
+Remove-Item -Recurse -Force $ngData -ErrorAction SilentlyContinue
+$env:MOCK_NO_GPU = "1"
+try {
+    $p = Start-Kikitori -Exe $Exe -DataDir $ngData
+    $script:id = $p.Id
+    [void](Wait-Hook $id 30)
+    Invoke-Hook $id "main_rect 560 20 1100 1040" | Out-Null
+    Nav "home"
+    Check "no GPU: status error" (Wait-Until { (St).engine_state -eq "error" } 10)
+    $btn = Find-Uia (MainRoot) -AutomationId "OpenAsrSettingsButton"
+    Check "error: 'open ASR settings' button shown" ($btn.Current.BoundingRectangle.Height -gt 0)
+    Shot "14_error_no_gpu"
+    Invoke-Uia $btn; Start-Sleep 1
+    Check "error button opens the ASR page" ((St).main_page -eq "asr")
+    Select-UiaComboIndex (Find-Uia (MainRoot) -AutomationId "DeviceCombo") 1
+    Check "switch device to CPU -> listening" (Wait-Until { $x = St; $x.device -eq "cpu" -and $x.engine_state -eq "listening" } 10)
+    Invoke-Hook $id exit | Out-Null
+    Check "error session: exit" (Wait-Until { -not (Get-Process -Id $id -ErrorAction SilentlyContinue) } 8)
+} finally { Remove-Item Env:MOCK_NO_GPU -ErrorAction SilentlyContinue }
+Start-Sleep 1
+Check "no engine process left at the end" (@(Get-EngineProcesses).Count -eq 0)
 
 $fails = @($results | Where-Object { $_ -like "FAIL*" }).Count
 $summary = "{0} checks, {1} failed" -f $results.Count, $fails

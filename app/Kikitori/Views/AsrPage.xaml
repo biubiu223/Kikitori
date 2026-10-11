@@ -35,6 +35,14 @@
                         <ComboBoxItem Content="int8（CPU 运行时用）" Tag="int8" />
                     </ComboBox>
                 </tk:SettingsCard>
+                <tk:SettingsCard Header="下载源" Description="显卡运行库（约 1.3GB）和识别模型（约 3GB）首次使用时的下载地址。国内网络建议选自动或国内镜像。">
+                    <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE896;" /></tk:SettingsCard.HeaderIcon>
+                    <ComboBox x:Name="SourceCombo" MinWidth="320" SelectionChanged="Combo_SelectionChanged">
+                        <ComboBoxItem Content="自动（推荐，测速选最快的）" Tag="auto" />
+                        <ComboBoxItem Content="国外官方（PyPI / Hugging Face）" Tag="official" />
+                        <ComboBoxItem Content="国内镜像（清华 / 阿里云 / hf-mirror）" Tag="china" />
+                    </ComboBox>
+                </tk:SettingsCard>
                 <tk:SettingsCard Header="显示草稿" Description="说话过程中先显示原文“草稿”（蓝色，约每秒刷新一次），说完一句再出翻译">
                     <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE70F;" /></tk:SettingsCard.HeaderIcon>
                     <ToggleSwitch x:Name="PartialToggle" Toggled="PartialToggle_Toggled" />

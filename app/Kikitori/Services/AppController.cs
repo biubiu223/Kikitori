@@ -414,7 +414,8 @@ public sealed class AppController
         "not_running" => "引擎未运行",
         "starting" => "正在启动",
         "idle" => "未开始监听",
-        "downloading_model" => "正在下载模型",
+        "downloading_runtime" => "正在下载显卡运行库",
+        "downloading_model" => "正在下载识别模型",
         "loading_model" => "正在加载模型",
         "warming_up" => "正在预热",
         "listening" => "正在监听",
@@ -423,6 +424,12 @@ public sealed class AppController
         "error" => "出错了",
         _ => state,
     };
+
+    /// <summary>正在首次下载（显卡运行库 / 识别模型）。</summary>
+    public bool IsDownloading => EngineState is "downloading_runtime" or "downloading_model";
+
+    /// <summary>下载进度百分比文字，例如“31%”；没有进度时为空。</summary>
+    public string ProgressText => Progress is double p ? $"{Math.Clamp(p, 0, 1) * 100:0}%" : "";
 
     /// <summary>把 RMS 换算成 0~1 的电平（-60dB ~ 0dB），说话声大约在中间。</summary>
     public static double RmsToMeter(double rms)

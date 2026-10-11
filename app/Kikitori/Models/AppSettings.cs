@@ -19,6 +19,7 @@ public sealed class EngineSettings
     public AsrSettings Asr { get; set; } = new();
     public VadSettings Vad { get; set; } = new();
     public AudioSettings Audio { get; set; } = new();
+    public DownloadSettings Download { get; set; } = new();
     /// <summary>专有名词对照表（保持用户编辑的顺序；发给引擎时转成对象）。</summary>
     public List<GlossaryEntry> Glossary { get; set; } = new();
 }
@@ -118,6 +119,12 @@ public sealed class AudioSettings
     public string Device { get; set; } = "";
     /// <summary>测试用：非空时引擎从这个音频文件读取（界面上不提供，手动改 settings.json）。</summary>
     public string File { get; set; } = "";
+}
+
+public sealed class DownloadSettings
+{
+    /// <summary>显卡运行库和识别模型的下载源："auto" | "official" | "china"（protocol 第 7 节）。</summary>
+    public string Source { get; set; } = "auto";
 }
 
 public sealed class GlossaryEntry

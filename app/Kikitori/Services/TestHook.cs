@@ -176,6 +176,10 @@ internal static class TestHook
             main_visible = mw?.AppWindow.IsVisible,
             notice_open = mw?.IsNoticeOpen,
             setup_problem = ctl.TranslationSetupProblem,
+            progress = ctl.Progress,
+            tray_tooltip = app.Tray?.ToolTip,
+            download_source = s.Engine.Download.Source,
+            device = s.Engine.Asr.Device,
             main_page = mw?.CurrentPage,
             settings_file = AppPaths.SettingsFile,
         });
