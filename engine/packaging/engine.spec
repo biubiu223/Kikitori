@@ -46,7 +46,7 @@ datas.append((_manifest, "."))
 if os.environ.get("KIKITORI_BUNDLE_CUDA") == "1":
     _nv = importlib.util.find_spec("nvidia")
     if _nv is None or not _nv.submodule_search_locations:
-        raise SystemExit("找不到 nvidia-cublas-cu12 / nvidia-cudnn-cu12，请先在 .venv 里安装 engine/requirements.txt")
+        raise SystemExit("找不到 nvidia-cublas-cu12 / nvidia-cudnn-cu12，请先在 .venv 里安装 engine/requirements-cuda.txt")
     _nv_count = 0
     for _base in _nv.submodule_search_locations:
         for _bin in sorted(glob.glob(os.path.join(_base, "*", "bin"))):

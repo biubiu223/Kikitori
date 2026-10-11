@@ -57,7 +57,7 @@ def main():
             try:
                 version = md.version(name)
             except md.PackageNotFoundError:
-                raise SystemExit(f"当前环境没有安装 {name}（先 pip install -r engine\\requirements.txt）")
+                raise SystemExit(f"当前环境没有安装 {name}（先 pip install -r engine\\requirements-cuda.txt）")
             info = wheel_info(client, name, version)
             dlls = local_dlls(name)
             if not dlls:

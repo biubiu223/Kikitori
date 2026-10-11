@@ -1,0 +1,6 @@
+# 本地开发用：以源码模式（python engine\engine_server.py）在 GPU 上跑识别时需要的 NVIDIA 运行库（约 1.5GB）。
+# 打包后的程序不需要它们 —— 首次运行时会按 engine/packaging/cuda_manifest.json 自动下载同版本的 DLL。
+# 版本必须和 cuda_manifest.json 一致；升级时改这里，再运行 engine/packaging/make_cuda_manifest.py 重新生成清单。
+nvidia-cublas-cu12==12.9.2.10
+nvidia-cudnn-cu12==9.27.0.42
+nvidia-cuda-nvrtc-cu12==12.9.86

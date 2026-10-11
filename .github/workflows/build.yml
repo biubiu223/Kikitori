@@ -1,0 +1,106 @@
+# 构建与发布
+#   - 推送到 main / 提 PR：完整构建一遍（引擎 + 界面 + 安装包 + zip），产物作为 Actions 构建产物保存 7 天
+#   - 推送 v* 标签：构建后创建 GitHub Release，附上安装包和免安装 zip
+#   - 也可以在 Actions 页面手动运行（只构建，不发布）
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths-ignore: ["**.md", "docs/**", "LICENSE"]
+  pull_request:
+    paths-ignore: ["**.md", "docs/**", "LICENSE"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 检查版本号（标签构建）
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}".Substring(1)
+          $app = (Select-String -Path app/Kikitori/Kikitori.csproj -Pattern '<Version>(.+?)</Version>').Matches[0].Groups[1].Value
+          $engine = (Select-String -Path engine/engine_server.py -Pattern '^VERSION = "(.+?)"').Matches[0].Groups[1].Value
+          "tag=$tag  app=$app  engine=$engine"
+          # 预发布标签（v1.1.0-beta.1）只比较 - 前面的部分
+          $base = ($tag -split '-')[0]
+          if ($app -ne $base -or $engine -ne $base) {
+            throw "版本号不一致：标签 $tag，Kikitori.csproj $app，engine_server.py $engine。请先改成一致再打标签。"
+          }
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: |
+            engine/requirements.txt
+            engine/requirements-build.txt
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Python 环境
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .venv\Scripts\python.exe -m pip install --upgrade pip
+          .venv\Scripts\python.exe -m pip install -r engine/requirements.txt -r engine/requirements-build.txt
+
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ }
+          if (-not $iscc -and -not (Get-Command ISCC.exe -ErrorAction SilentlyContinue)) {
+            choco install innosetup -y --no-progress
+          }
+
+      - name: 构建（引擎 + 界面 + 安装包 + zip）
+        shell: pwsh
+        run: ./build.ps1 -Zip -Installer
+
+      - name: 保存构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kikitori-build-${{ github.run_number }}
+          path: |
+            dist/*.exe
+            dist/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: 发布说明
+        id: notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $f = "docs/release-notes/${{ github.ref_name }}.md"
+          if (Test-Path $f) { "path=$f" >> $env:GITHUB_OUTPUT } else { "path=" >> $env:GITHUB_OUTPUT }
+
+      - name: 创建 Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: 听译 Kikitori ${{ github.ref_name }}
+          body_path: ${{ steps.notes.outputs.path }}
+          generate_release_notes: ${{ steps.notes.outputs.path == '' }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            dist/*.exe
+            dist/*.zip
+          fail_on_unmatched_files: true

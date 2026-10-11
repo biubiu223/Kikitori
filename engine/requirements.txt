@@ -1,8 +1,7 @@
+# 引擎运行所需的依赖（打包精简版引擎、GitHub Actions 构建只需要这些）
 faster-whisper>=1.2
 # av 19 删掉了 faster-whisper 读音频文件要用的参数
 av>=18,<19
-nvidia-cublas-cu12
-nvidia-cudnn-cu12>=9,<10
 PyAudioWPatch
 soxr
 httpx

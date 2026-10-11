@@ -76,11 +76,13 @@ Whisper 约占 4GB 显存，`qwen3:8b` 约 6GB，16GB 显卡可以同时运行�
 需要：Python 3.11+（开发时用的是 3.14）、.NET 8 SDK、NVIDIA 驱动。**不需要** Visual Studio。
 
 ```powershell
-# 1. Python 环境：建在仓库根目录（约 1.5GB，主要是 CUDA 运行库）
+# 1. Python 环境：建在仓库根目录
 python -m venv .venv
 .venv\Scripts\python.exe -m pip install -r engine\requirements.txt -r engine\requirements-build.txt
+#    想用源码模式在 GPU 上调试引擎，再装 NVIDIA 运行库（约 1.5GB；打包构建不需要）
+.venv\Scripts\python.exe -m pip install -r engine\requirements-cuda.txt
 
-# 2. 一键构建：打包引擎 + 发布界面 + 组装到 dist\Kikitori\（加 -Zip 生成免安装压缩包，加 -Installer 生成安装程序）
+# 2. 一键构建：打包引擎 + 发布界面 + 组装到 dist\Kikitori\（加 -Zip 生成免安装压缩包，加 -Installer 生成安装程序，需要 Inno Setup 6）
 powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
@@ -109,12 +111,23 @@ engine/                 识别/翻译引擎（Python）
   kikitori/               引擎代码（录音、断句、识别、翻译、显卡运行库下载）
   engine_server.py        引擎进程入口（界面通过 stdin/stdout 和它通信）
   packaging/              PyInstaller 打包配置、显卡运行库清单
-  requirements.txt        运行依赖（requirements-build.txt：打包依赖）
+  requirements*.txt       运行依赖 / 打包依赖 / 源码模式 GPU 调试用的 NVIDIA 运行库
 installer/              Inno Setup 安装程序脚本
-docs/                   界面 ⇄ 引擎通信协议（protocol.md）、截图
+docs/                   界面 ⇄ 引擎通信协议（protocol.md）、截图、各版本发布说明（release-notes/）
 tools/                  模拟引擎、模拟翻译服务、测试脚本
+.github/workflows/      GitHub Actions：自动构建与发布
 build.ps1               一键构建
 ```
+
+### 发布新版本
+
+发布由 GitHub Actions 自动完成（`.github/workflows/build.yml`）：推送到 `main` 时只构建、检查能不能打包成功；推送 `v*` 标签时构建并创建 Release，附上安装包和免安装 zip。
+
+1. 修改版本号（两处必须一致，工作流会检查）：`app/Kikitori/Kikitori.csproj` 的 `<Version>`、`engine/engine_server.py` 的 `VERSION`
+2. 写发布说明 `docs/release-notes/vX.Y.Z.md`（没有的话 Release 页面会用自动生成的提交列表）
+3. 提交后打标签并推送：`git tag -a vX.Y.Z -m "Kikitori vX.Y.Z"`，`git push origin main vX.Y.Z`
+
+标签里带 `-`（例如 `v1.1.0-beta.1`）会发布为预发布版本。
 
 ## 许可证
 
