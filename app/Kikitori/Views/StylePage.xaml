@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Page
     x:Class="Kikitori.Views.StylePage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -38,6 +38,10 @@
                 <tk:SettingsCard Header="字幕居中" Description="关掉 = 左对齐">
                     <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE8E3;" /></tk:SettingsCard.HeaderIcon>
                     <ToggleSwitch x:Name="CenterToggle" Toggled="Toggle_Toggled" />
+                </tk:SettingsCard>
+                <tk:SettingsCard Header="文字阴影" Description="在亮色或复杂视频背景下保持字幕清晰锐利">
+                    <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE790;" /></tk:SettingsCard.HeaderIcon>
+                    <ToggleSwitch x:Name="TextShadowToggle" Toggled="Toggle_Toggled" />
                 </tk:SettingsCard>
                 <tk:SettingsCard Header="显示条数" Description="字幕条上同时显示最近几句（最新的在最下面）">
                     <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE8FD;" /></tk:SettingsCard.HeaderIcon>

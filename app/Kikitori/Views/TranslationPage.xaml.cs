@@ -51,8 +51,24 @@ public sealed partial class TranslationPage : Page
         OpenAiModelBox.Text = t.OpenaiCompatible.Model;
         OpenAiTempBox.Value = t.OpenaiCompatible.Temperature;
         ContextBox.Value = t.ContextLines;
+
+        SelectByTag(OllamaModelPresetCombo, t.Ollama.Model);
+        string currentPreset = DetectOpenAiPreset(t.OpenaiCompatible.BaseUrl, t.OpenaiCompatible.Model);
+        SelectByTag(OpenAiPresetCombo, currentPreset);
+
         _loading = false;
         UpdatePanels();
+    }
+
+    private static string DetectOpenAiPreset(string url, string model)
+    {
+        url = url.Trim().TrimEnd('/');
+        if (url == "https://api.siliconflow.cn/v1" && model == "deepseek-ai/DeepSeek-V3") return "siliconflow_v3";
+        if (url == "https://api.siliconflow.cn/v1" && model == "Qwen/Qwen2.5-72B-Instruct") return "siliconflow_qwen";
+        if (url == "https://dashscope.aliyuncs.com/compatible-mode/v1" && model == "qwen-plus") return "aliyun_qwen";
+        if (url == "https://open.bigmodel.cn/api/paas/v4" && model == "glm-4-flash") return "zhipu_flash";
+        if (url == "https://api.deepseek.com/v1" && model == "deepseek-chat") return "deepseek_compat";
+        return "custom";
     }
 
     private static bool SelectByTag(ComboBox combo, string tag)
@@ -123,9 +139,42 @@ public sealed partial class TranslationPage : Page
         var t = T;
         if (ReferenceEquals(sender, DeepSeekUrlBox)) Set(t.Deepseek.BaseUrl, DeepSeekUrlBox.Text.Trim(), v => t.Deepseek.BaseUrl = v);
         else if (ReferenceEquals(sender, OllamaUrlBox)) Set(t.Ollama.BaseUrl, OllamaUrlBox.Text.Trim(), v => t.Ollama.BaseUrl = v);
-        else if (ReferenceEquals(sender, OllamaModelBox)) Set(t.Ollama.Model, OllamaModelBox.Text.Trim(), v => t.Ollama.Model = v);
-        else if (ReferenceEquals(sender, OpenAiUrlBox)) Set(t.OpenaiCompatible.BaseUrl, OpenAiUrlBox.Text.Trim(), v => t.OpenaiCompatible.BaseUrl = v);
-        else if (ReferenceEquals(sender, OpenAiModelBox)) Set(t.OpenaiCompatible.Model, OpenAiModelBox.Text.Trim(), v => t.OpenaiCompatible.Model = v);
+        else if (ReferenceEquals(sender, OllamaModelBox))
+        {
+            Set(t.Ollama.Model, OllamaModelBox.Text.Trim(), v => t.Ollama.Model = v);
+            if (!_loading) SelectByTag(OllamaModelPresetCombo, t.Ollama.Model);
+        }
+        else if (ReferenceEquals(sender, OpenAiUrlBox) || ReferenceEquals(sender, OpenAiModelBox))
+        {
+            if (ReferenceEquals(sender, OpenAiUrlBox)) Set(t.OpenaiCompatible.BaseUrl, OpenAiUrlBox.Text.Trim(), v => t.OpenaiCompatible.BaseUrl = v);
+            if (ReferenceEquals(sender, OpenAiModelBox)) Set(t.OpenaiCompatible.Model, OpenAiModelBox.Text.Trim(), v => t.OpenaiCompatible.Model = v);
+            if (!_loading) SelectByTag(OpenAiPresetCombo, DetectOpenAiPreset(t.OpenaiCompatible.BaseUrl, t.OpenaiCompatible.Model));
+        }
+    }
+
+    private void OpenAiPresetCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || SelectedTag(OpenAiPresetCombo) is not string tag || tag == "custom") return;
+        var (url, model) = tag switch
+        {
+            "siliconflow_v3" => ("https://api.siliconflow.cn/v1", "deepseek-ai/DeepSeek-V3"),
+            "siliconflow_qwen" => ("https://api.siliconflow.cn/v1", "Qwen/Qwen2.5-72B-Instruct"),
+            "aliyun_qwen" => ("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
+            "zhipu_flash" => ("https://open.bigmodel.cn/api/paas/v4", "glm-4-flash"),
+            "deepseek_compat" => ("https://api.deepseek.com/v1", "deepseek-chat"),
+            _ => ("", "")
+        };
+        if (url.Length > 0)
+        {
+            OpenAiUrlBox.Text = url;
+            OpenAiModelBox.Text = model;
+        }
+    }
+
+    private void OllamaModelPresetCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || SelectedTag(OllamaModelPresetCombo) is not string tag) return;
+        OllamaModelBox.Text = tag;
     }
 
     private void Number_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)

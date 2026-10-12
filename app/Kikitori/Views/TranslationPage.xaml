@@ -68,6 +68,15 @@
                     <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE774;" /></tk:SettingsCard.HeaderIcon>
                     <TextBox x:Name="OllamaUrlBox" Width="300" PlaceholderText="http://localhost:11434" TextChanged="Field_TextChanged" />
                 </tk:SettingsCard>
+                <tk:SettingsCard Header="推荐模型" Description="从常用模型中选择并快速填入">
+                    <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE8B7;" /></tk:SettingsCard.HeaderIcon>
+                    <ComboBox x:Name="OllamaModelPresetCombo" MinWidth="300" SelectionChanged="OllamaModelPresetCombo_SelectionChanged">
+                        <ComboBoxItem Content="qwen3:8b（官方推荐：懂网络梗）" Tag="qwen3:8b" />
+                        <ComboBoxItem Content="qwen2.5:7b（极速、低显存占用）" Tag="qwen2.5:7b" />
+                        <ComboBoxItem Content="qwen2.5:14b（高质量翻译）" Tag="qwen2.5:14b" />
+                        <ComboBoxItem Content="gemma2:9b（高准确率）" Tag="gemma2:9b" />
+                    </ComboBox>
+                </tk:SettingsCard>
                 <tk:SettingsCard Header="模型" Description="Ollama 里已下载的模型名">
                     <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE945;" /></tk:SettingsCard.HeaderIcon>
                     <TextBox x:Name="OllamaModelBox" Width="300" PlaceholderText="qwen3:8b" TextChanged="Field_TextChanged" />
@@ -82,6 +91,17 @@
             <!-- ================= OpenAI 兼容 ================= -->
             <StackPanel x:Name="OpenAiPanel" Spacing="{StaticResource SettingsCardSpacing}">
                 <TextBlock Text="OpenAI 兼容接口" Style="{StaticResource SectionHeaderStyle}" />
+                <tk:SettingsCard Header="服务商快捷预设" Description="一键自动填入国内低延迟节点与极速模型">
+                    <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE71D;" /></tk:SettingsCard.HeaderIcon>
+                    <ComboBox x:Name="OpenAiPresetCombo" MinWidth="320" SelectionChanged="OpenAiPresetCombo_SelectionChanged">
+                        <ComboBoxItem Content="自定义输入" Tag="custom" />
+                        <ComboBoxItem Content="SiliconFlow 硅基流动（极速 DeepSeek-V3）" Tag="siliconflow_v3" />
+                        <ComboBoxItem Content="SiliconFlow 硅基流动（极速 Qwen2.5-72B）" Tag="siliconflow_qwen" />
+                        <ComboBoxItem Content="阿里云百炼 通义千问（qwen-plus 极速稳定）" Tag="aliyun_qwen" />
+                        <ComboBoxItem Content="智谱 AI 开放平台（glm-4-flash 超轻快）" Tag="zhipu_flash" />
+                        <ComboBoxItem Content="DeepSeek 官方（OpenAI 兼容端点）" Tag="deepseek_compat" />
+                    </ComboBox>
+                </tk:SettingsCard>
                 <tk:SettingsCard Header="接口地址" Description="通义千问、Kimi、OpenAI 等兼容 OpenAI 格式的服务">
                     <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE774;" /></tk:SettingsCard.HeaderIcon>
                     <TextBox x:Name="OpenAiUrlBox" Width="320" PlaceholderText="https://dashscope.aliyuncs.com/compatible-mode/v1" TextChanged="Field_TextChanged" />

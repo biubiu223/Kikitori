@@ -38,6 +38,7 @@ public sealed partial class StylePage : Page
         SourceFontSlider.Value = o.SourceFontSize;
         ShowSourceToggle.IsOn = o.ShowSource;
         CenterToggle.IsOn = o.Centered;
+        TextShadowToggle.IsOn = o.TextShadow;
         LinesSlider.Value = o.MaxLines;
         OpacitySlider.Value = Math.Round(o.Opacity * 100);
         var overlay = App.Current.Overlay;
@@ -84,6 +85,7 @@ public sealed partial class StylePage : Page
         if (_loading) return;
         O.ShowSource = ShowSourceToggle.IsOn;
         O.Centered = CenterToggle.IsOn;
+        O.TextShadow = TextShadowToggle.IsOn;
         Notify();
     }
 
@@ -117,6 +119,7 @@ public sealed partial class StylePage : Page
         o.Opacity = d.Opacity;
         o.ShowSource = d.ShowSource;
         o.Centered = d.Centered;
+        o.TextShadow = d.TextShadow;
         _ctl.NotifyOverlayStyleChanged();
     }
 }

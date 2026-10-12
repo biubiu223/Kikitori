@@ -160,6 +160,8 @@ public sealed class OverlaySettings
     public double Opacity { get; set; } = 0.8;
     public bool ShowSource { get; set; } = true;
     public bool Centered { get; set; }
+    /// <summary>文字深色立体阴影（在亮色视频背景下清晰不反光）。</summary>
+    public bool TextShadow { get; set; } = true;
 }
 
 public sealed class WindowPlacement

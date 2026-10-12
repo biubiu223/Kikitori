@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Window
     x:Class="Kikitori.Views.OverlayWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -16,7 +16,13 @@
                 <!-- 顶部一行小字：临时状态 / notice -->
                 <TextBlock x:Name="StatusText" Height="20" FontSize="12" Margin="-8,3,0,0" TextTrimming="CharacterEllipsis"
                            FontFamily="Microsoft YaHei UI, Segoe UI" />
-                <StackPanel x:Name="Lines" Spacing="8" />
+                <StackPanel x:Name="Lines" Spacing="8">
+                    <StackPanel.ChildrenTransitions>
+                        <TransitionCollection>
+                            <RepositionThemeTransition />
+                        </TransitionCollection>
+                    </StackPanel.ChildrenTransitions>
+                </StackPanel>
                 <TextBlock x:Name="Placeholder" Text="（等待声音…  右键打开菜单）" FontSize="14" Foreground="#6B7380"
                            FontFamily="Microsoft YaHei UI, Segoe UI" Margin="0,2,0,0" />
             </StackPanel>

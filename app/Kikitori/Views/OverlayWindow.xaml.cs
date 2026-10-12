@@ -1,4 +1,4 @@
-﻿using Kikitori.Models;
+using Kikitori.Models;
 using Kikitori.Services;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Text;
@@ -42,6 +42,8 @@ public sealed partial class OverlayWindow : Window
         public required StackPanel Panel;
         public required TextBlock Source;
         public required TextBlock Main;
+        public required TextBlock SourceShadow;
+        public required TextBlock MainShadow;
     }
 
     private readonly AppController _ctl = AppController.Instance;
@@ -67,7 +69,7 @@ public sealed partial class OverlayWindow : Window
 
     // 右键菜单
     private MenuFlyout _menu = null!;
-    private ToggleMenuFlyoutItem _miPause = null!, _miShowSource = null!, _miCenter = null!;
+    private ToggleMenuFlyoutItem _miPause = null!, _miShowSource = null!, _miCenter = null!, _miTextShadow = null!;
     private MenuFlyoutSubItem _miFont = null!;
     private readonly List<RadioMenuFlyoutItem> _miSources = new(), _miTargets = new(), _miLines = new(), _miOpacity = new();
 
@@ -95,15 +97,26 @@ public sealed partial class OverlayWindow : Window
         Native.DwmSetWindowAttribute(_hwnd, Native.DWMWA_WINDOW_CORNER_PREFERENCE, ref noRound, sizeof(int));
         if (File.Exists(AppPaths.IconFile)) AppWindow.SetIcon(AppPaths.IconFile);
 
+        var shadowBrush = new SolidColorBrush(Color.FromArgb(210, 0, 0, 0));
         for (int i = 0; i < MaxRows; i++)
         {
+            var srcShadow = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = shadowBrush, Margin = new Thickness(1, 1, 0, 0), Visibility = Visibility.Collapsed };
             var src = new TextBlock { TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
+            var srcGrid = new Grid();
+            srcGrid.Children.Add(srcShadow);
+            srcGrid.Children.Add(src);
+
+            var mainShadow = new TextBlock { TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.Bold, Foreground = shadowBrush, Margin = new Thickness(1.5, 1.5, 0, 0), Visibility = Visibility.Collapsed };
             var main = new TextBlock { TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.Bold, Visibility = Visibility.Collapsed };
+            var mainGrid = new Grid();
+            mainGrid.Children.Add(mainShadow);
+            mainGrid.Children.Add(main);
+
             var panel = new StackPanel { Spacing = 1, Visibility = Visibility.Collapsed };
-            panel.Children.Add(src);
-            panel.Children.Add(main);
+            panel.Children.Add(srcGrid);
+            panel.Children.Add(mainGrid);
             Lines.Children.Add(panel);
-            _rows.Add(new Row { Panel = panel, Source = src, Main = main });
+            _rows.Add(new Row { Panel = panel, Source = src, Main = main, SourceShadow = srcShadow, MainShadow = mainShadow });
         }
         BuildMenu();
 
@@ -176,9 +189,13 @@ public sealed partial class OverlayWindow : Window
         foreach (var r in _rows)
         {
             r.Main.FontSize = o.FontSize * PtToDip;
+            r.MainShadow.FontSize = o.FontSize * PtToDip;
             r.Source.FontSize = o.SourceFontSize * PtToDip;
+            r.SourceShadow.FontSize = o.SourceFontSize * PtToDip;
             r.Main.TextAlignment = align;
+            r.MainShadow.TextAlignment = align;
             r.Source.TextAlignment = align;
+            r.SourceShadow.TextAlignment = align;
         }
         Placeholder.HorizontalAlignment = o.Centered ? HorizontalAlignment.Center : HorizontalAlignment.Left;
         ApplyFonts();
@@ -196,9 +213,13 @@ public sealed partial class OverlayWindow : Window
         foreach (var r in _rows)
         {
             r.Source.FontFamily = srcFont;
+            r.SourceShadow.FontFamily = srcFont;
             r.Source.Language = Languages.XmlLangFor(srcLang);
+            r.SourceShadow.Language = Languages.XmlLangFor(srcLang);
             r.Main.FontFamily = mainFont;
+            r.MainShadow.FontFamily = mainFont;
             r.Main.Language = Languages.XmlLangFor(tgtLang);
+            r.MainShadow.Language = Languages.XmlLangFor(tgtLang);
         }
     }
 
@@ -246,7 +267,7 @@ public sealed partial class OverlayWindow : Window
             var srcColor = FgSource;
             if (it.IsPartial) { src = it.Source + " …"; srcColor = FgPartial; }
             else if (!it.IsSameLanguage && (o.ShowSource || it.IsNoTranslation)) src = it.Source;
-            SetLine(row.Source, src, srcColor);
+            SetLine(row.Source, row.SourceShadow, src, srcColor);
 
             // 译文行（大字白色加粗；待翻译灰色“…”；失败“（翻译失败）”）
             string? main = null;
@@ -260,24 +281,37 @@ public sealed partial class OverlayWindow : Window
                 else if (it.IsPending) { main = "…"; mainColor = FgPending; }
                 else if (it.Translation.Length > 0) main = it.Translation;
             }
-            SetLine(row.Main, main, mainColor);
-            row.Main.FontWeight = bold ? FontWeights.Bold : FontWeights.Normal;
-            row.Main.FontSize = size;
+            SetLine(row.Main, row.MainShadow, main, mainColor, bold, size);
         }
         Placeholder.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         FitHeight();
     }
 
-    private void SetLine(TextBlock tb, string? text, Color color)
+    private void SetLine(TextBlock tb, TextBlock shadow, string? text, Color color, bool bold = false, double? size = null)
     {
         if (string.IsNullOrEmpty(text))
         {
             tb.Visibility = Visibility.Collapsed;
+            shadow.Visibility = Visibility.Collapsed;
             return;
         }
         tb.Text = text;
         tb.Foreground = Brush(color);
+        tb.FontWeight = bold ? FontWeights.Bold : FontWeights.Normal;
+        if (size.HasValue) tb.FontSize = size.Value;
         tb.Visibility = Visibility.Visible;
+
+        if (O.TextShadow)
+        {
+            shadow.Text = text;
+            shadow.FontWeight = tb.FontWeight;
+            if (size.HasValue) shadow.FontSize = size.Value;
+            shadow.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            shadow.Visibility = Visibility.Collapsed;
+        }
     }
 
     // ================================================================== 尺寸 / 位置
@@ -565,6 +599,9 @@ public sealed partial class OverlayWindow : Window
         _miCenter = new ToggleMenuFlyoutItem { Text = "字幕居中" };
         _miCenter.Click += (_, _) => { O.Centered = _miCenter.IsChecked; _ctl.NotifyOverlayStyleChanged(); };
         Id(_miCenter, "menu_center"); _menu.Items.Add(_miCenter);
+        _miTextShadow = new ToggleMenuFlyoutItem { Text = "文字阴影" };
+        _miTextShadow.Click += (_, _) => { O.TextShadow = _miTextShadow.IsChecked; _ctl.NotifyOverlayStyleChanged(); };
+        Id(_miTextShadow, "menu_text_shadow"); _menu.Items.Add(_miTextShadow);
 
         _miFont = new MenuFlyoutSubItem { Text = "字号", Icon = Glyph("") };
         var bigger = new MenuFlyoutItem { Text = "放大  A+", Icon = Glyph("") };
@@ -624,6 +661,7 @@ public sealed partial class OverlayWindow : Window
         foreach (var i in _miTargets) i.IsChecked = (string)i.Tag == e.Translate.TargetLanguage;
         _miShowSource.IsChecked = o.ShowSource;
         _miCenter.IsChecked = o.Centered;
+        _miTextShadow.IsChecked = o.TextShadow;
         _miFont.Text = $"字号（{o.FontSize:0}）";
         foreach (var i in _miLines) i.IsChecked = (int)i.Tag == o.MaxLines;
         int op = (int)(Math.Round(o.Opacity * 10) * 10);
