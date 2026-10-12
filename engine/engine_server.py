@@ -143,7 +143,7 @@ def default_config() -> dict:
             "provider": "deepseek",
             "target_language": "zh-Hans",
             "context_lines": 4,
-            "deepseek": {"api_key": "", "base_url": "https://api.deepseek.com", "model": "deepseek-flash",
+            "deepseek": {"api_key": "", "base_url": "https://api.deepseek.com", "model": "deepseek-chat",
                          "temperature": 1.3},
             "ollama": {"base_url": "http://localhost:11434", "model": "qwen3:8b", "temperature": 0.3},
             "openai_compatible": {"base_url": "", "api_key": "", "model": "", "temperature": 0.7},

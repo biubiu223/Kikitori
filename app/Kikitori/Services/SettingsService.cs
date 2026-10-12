@@ -82,7 +82,7 @@ public static class SettingsService
         t.TargetLanguage = Languages.NormalizeTarget(t.TargetLanguage);
         t.ContextLines = Math.Clamp(t.ContextLines, 0, 20);
         t.Deepseek.BaseUrl ??= "https://api.deepseek.com";
-        t.Deepseek.Model = string.IsNullOrWhiteSpace(t.Deepseek.Model) ? "deepseek-flash" : t.Deepseek.Model;
+        t.Deepseek.Model = (string.IsNullOrWhiteSpace(t.Deepseek.Model) || t.Deepseek.Model == "deepseek-flash") ? "deepseek-chat" : t.Deepseek.Model;
         t.Deepseek.Temperature = Math.Clamp(t.Deepseek.Temperature, 0, 2);
         t.Ollama.BaseUrl ??= "http://localhost:11434";
         t.Ollama.Model ??= "qwen3:8b";

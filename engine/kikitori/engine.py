@@ -326,7 +326,7 @@ class Engine:
         self.translator = Translator(cfg, self.glossary, source_lang, target_lang)
         self.translate_on = False
         self.translate_error: str | None = None
-        self.context_lines = int(cfg.get("translate", {}).get("context_lines", 4))
+        self.context_lines = max(0, min(10, int(cfg.get("translate", {}).get("context_lines", 4))))
 
         self.audio_q: "queue.Queue" = queue.Queue()
         self.source = None
@@ -348,7 +348,7 @@ class Engine:
         self._open_partials: set[int] = set()   # 发过草稿、还没出正式结果的句子（只在识别线程里改）
 
         # 翻译
-        self._pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="translate")
+        self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="translate")
         self._hist_lock = threading.Lock()
         self._history: dict[int, dict] = {}   # seg_id -> {src, dst, ts}
 

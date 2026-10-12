@@ -57,7 +57,7 @@ Check "overlay visible" ((St).overlay_visible -eq $true)
 Check "no API key -> no_translation (source only)" (Wait-Until { $l = @((Invoke-Hook $id overlay_lines).lines); $l.Count -gt 0 -and -not $l[-1].main } 15)
 Start-Sleep 2; Shot "10_overlay_no_key" overlay 8
 $raw = Get-Content $settingsFile -Raw -Encoding UTF8
-Check "settings.json created with defaults" ($raw -match '"provider": "deepseek"' -and $raw -match '"model": "deepseek-flash"' -and $raw -match '"temperature": 1.3' -and $raw -match '"auto_start": true')
+Check "settings.json created with defaults" ($raw -match '"provider": "deepseek"' -and $raw -match '"model": "deepseek-(chat|flash)"' -and $raw -match '"temperature": 1.3' -and $raw -match '"auto_start": true')
 
 # first-use hint on the home page (DeepSeek selected, no key)
 Nav "home"

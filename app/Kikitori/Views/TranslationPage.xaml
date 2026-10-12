@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Page
     x:Class="Kikitori.Views.TranslationPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -37,11 +37,12 @@
                     </tk:SettingsCard.Description>
                     <PasswordBox x:Name="DeepSeekKeyBox" Width="300" PlaceholderText="sk-..." PasswordChanged="DeepSeekKeyBox_PasswordChanged" />
                 </tk:SettingsCard>
-                <tk:SettingsCard Header="模型" Description="同传要的是快：deepseek-flash 一般零点几秒出译文">
+                <tk:SettingsCard Header="模型" Description="同传要的是快：推荐 deepseek-chat（零点几秒极速响应）">
                     <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE945;" /></tk:SettingsCard.HeaderIcon>
                     <ComboBox x:Name="DeepSeekModelCombo" MinWidth="300" SelectionChanged="DeepSeekModelCombo_SelectionChanged">
-                        <ComboBoxItem Content="deepseek-flash（推荐：快、便宜）" Tag="deepseek-flash" />
-                        <ComboBoxItem Content="deepseek-v4-pro（会先思考，太慢，不适合同传）" Tag="deepseek-v4-pro" />
+                        <ComboBoxItem Content="deepseek-chat（官方推荐：极速同传）" Tag="deepseek-chat" />
+                        <ComboBoxItem Content="deepseek-reasoner（R1 深度思考，速度慢，不建议用于同传）" Tag="deepseek-reasoner" />
+                        <ComboBoxItem Content="deepseek-flash（兼容别名）" Tag="deepseek-flash" />
                     </ComboBox>
                 </tk:SettingsCard>
                 <tk:SettingsExpander Header="高级" Description="接口地址和温度，一般不用改">
@@ -89,9 +90,13 @@
                     <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE8D7;" /></tk:SettingsCard.HeaderIcon>
                     <PasswordBox x:Name="OpenAiKeyBox" Width="320" PasswordChanged="OpenAiKeyBox_PasswordChanged" />
                 </tk:SettingsCard>
-                <tk:SettingsCard Header="模型">
+                <tk:SettingsCard Header="模型" Description="推荐选用非推理通用对话模型（如 qwen-plus、gpt-4o-mini 等）">
                     <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE945;" /></tk:SettingsCard.HeaderIcon>
-                    <TextBox x:Name="OpenAiModelBox" Width="320" PlaceholderText="qwen-plus" TextChanged="Field_TextChanged" />
+                    <StackPanel Spacing="4">
+                        <TextBox x:Name="OpenAiModelBox" Width="320" PlaceholderText="qwen-plus" TextChanged="Field_TextChanged" />
+                        <TextBlock Text="⚠️ 避免选择带 r1、reasoner、qwq 等深度思考模型，否则思考链会带来数秒延迟。"
+                                   Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
                 </tk:SettingsCard>
                 <tk:SettingsCard Header="温度">
                     <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE9CA;" /></tk:SettingsCard.HeaderIcon>

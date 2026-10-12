@@ -59,7 +59,7 @@ public sealed class DeepSeekSettings
     }
 
     public string BaseUrl { get; set; } = "https://api.deepseek.com";
-    public string Model { get; set; } = "deepseek-flash";
+    public string Model { get; set; } = "deepseek-chat";
     public double Temperature { get; set; } = 1.3;
 }
 

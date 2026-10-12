@@ -8,6 +8,7 @@ import httpx
 from .languages import source_prompt_name, target_prompt_name
 
 PROMPT_TEMPLATE = """你是虚拟主播（VTuber）/网络直播的实时同声传译，负责把{src}直播语音的识别结果翻译成{tgt}字幕。
+【最高优先级】直接输出译文，严禁输出任何思考过程、推理步骤、思维链草稿（严禁输出 <think> 标签），不要进行任何分析或解释。
 
 规则：
 1. 只输出这一句的{tgt}译文。不要输出原文、注音、注释、解释或引号。
@@ -66,19 +67,33 @@ class Translator:
         self.enabled = self.provider not in ("off", "none", "")
         sub = tcfg.get(self.provider, {}) if self.enabled else {}
 
-        self.model = sub.get("model", "")
+        self.model = (sub.get("model") or "").strip()
         self.base_url = (sub.get("base_url") or "").rstrip("/")
         self.temperature = float(sub.get("temperature", 0.7))
         self.api_key = (sub.get("api_key") or "").strip()
-        # DeepSeek 新模型默认会先“思考”再回答：慢好几倍，还可能把输出额度用光导致译文为空。同传必须关掉。
+        # DeepSeek 核心模型兼容：主力推荐 deepseek-chat，同时兼顾老配置 deepseek-flash 与空配置
+        if self.provider == "deepseek":
+            if not self.model or self.model == "deepseek-flash":
+                self.model = "deepseek-chat"
+            if not self.base_url:
+                self.base_url = "https://api.deepseek.com"
+
+        # 控制大模型思考链：同传场景对延迟要求极高，默认必须关闭思考以保证秒级响应。
+        # 支持 deepseek 与 openai_compatible 服务。若用户未配置 thinking 或配置为 False（默认），则注入思考抑制参数。
         self.extra_body = {}
-        if self.provider == "deepseek" and not sub.get("thinking", False):
-            self.extra_body = {"thinking": {"type": "disabled"}}
+        thinking_cfg = sub.get("thinking", False)
+        thinking_enabled = thinking_cfg is True or str(thinking_cfg).lower() in ("true", "1", "yes")
+        if self.provider in ("deepseek", "openai_compatible") and not thinking_enabled:
+            self.extra_body = {
+                "thinking": {"type": "disabled"},
+                "reasoning_effort": "low",
+            }
 
         self.glossary = glossary
         self.set_languages(source, target)
 
         self._local = threading.local()
+        self._body_lock = threading.Lock()
         self._ollama_think_ok = True   # 旧版 Ollama 不认识 think 参数时自动关掉
 
     def set_languages(self, source: str, target: str):
@@ -146,7 +161,7 @@ class Translator:
         # 每个线程一个连接池，复用 HTTPS 连接，省掉每次握手的延迟
         c = getattr(self._local, "client", None)
         if c is None:
-            c = httpx.Client(timeout=httpx.Timeout(20.0, connect=8.0))
+            c = httpx.Client(timeout=httpx.Timeout(8.0, connect=5.0))
             self._local.client = c
         return c
 
@@ -191,32 +206,48 @@ class Translator:
     def _call_openai(self, messages) -> str:
         url = self.base_url + "/chat/completions"
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
-        body = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": self.temperature,
-            "max_tokens": 300,
-            "stream": False,
-            **self.extra_body,
-        }
-        r = self._client().post(url, json=body, headers=headers)
-        if r.status_code == 401:
-            raise TranslatorError(MSG_BAD_KEY)
-        if r.status_code == 402:
-            raise TranslatorError("API 账户余额不足（402）")
-        if r.status_code in (400, 404, 422):
-            # 参数/模型名错误：重试也没用，直接把服务器的说明告诉用户
-            try:
-                detail = r.json().get("error", {}).get("message", r.text)
-            except Exception:
-                detail = r.text
-            raise TranslatorError(f"翻译服务报错（{r.status_code}）：{detail[:150]}")
-        r.raise_for_status()
-        choice = r.json()["choices"][0]
-        content = choice["message"].get("content") or ""
-        if not content.strip() and choice.get("finish_reason") == "length":
-            raise TranslatorError(MSG_TRUNCATED)
-        return content
+
+        while True:
+            body = {
+                "model": self.model,
+                "messages": messages,
+                "temperature": self.temperature,
+                "max_tokens": 300,
+                "stream": False,
+                **self.extra_body,
+            }
+            r = self._client().post(url, json=body, headers=headers)
+            if r.status_code == 401:
+                raise TranslatorError(MSG_BAD_KEY)
+            if r.status_code == 402:
+                raise TranslatorError("API 账户余额不足（402）")
+
+            # 如果第三方代理或不兼容端点返回 400/422 且提示不支持 thinking 或 reasoning_effort，自动剔除该参数并重试
+            if r.status_code in (400, 422) and any(k in self.extra_body for k in ("thinking", "reasoning_effort")):
+                err_text = r.text.lower()
+                removed = []
+                with self._body_lock:
+                    for k in ("thinking", "reasoning_effort"):
+                        if k in self.extra_body and k in err_text:
+                            self.extra_body.pop(k, None)
+                            removed.append(k)
+                if removed:
+                    print(f"[translate] 接口不支持参数 {', '.join(removed)}（{r.status_code}），已自动剔除并重试")
+                    continue
+
+            if r.status_code in (400, 404, 422):
+                # 参数/模型名错误：重试也没用，直接把服务器的说明告诉用户
+                try:
+                    detail = r.json().get("error", {}).get("message", r.text)
+                except Exception:
+                    detail = r.text
+                raise TranslatorError(f"翻译服务报错（{r.status_code}）：{detail[:150]}")
+            r.raise_for_status()
+            choice = r.json()["choices"][0]
+            content = choice["message"].get("content") or ""
+            if not content.strip() and choice.get("finish_reason") == "length":
+                raise TranslatorError(MSG_TRUNCATED)
+            return content
 
     def _call_ollama(self, messages) -> str:
         body = {
@@ -239,6 +270,8 @@ class Translator:
     @staticmethod
     def _clean(s: str) -> str:
         s = _THINK.sub("", s).strip()
+        if "<think>" in s and "</think>" not in s:
+            s = s.split("<think>", 1)[0].strip()
         for prefix in ("译：", "译:", "中：", "中:", "译文：", "译文:", "翻译：", "翻译:"):
             if s.startswith(prefix):
                 s = s[len(prefix):].strip()

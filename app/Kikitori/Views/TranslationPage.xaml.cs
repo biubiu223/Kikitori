@@ -1,4 +1,4 @@
-﻿using System.Text.Json.Nodes;
+using System.Text.Json.Nodes;
 using Kikitori.Services;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
@@ -162,9 +162,18 @@ public sealed partial class TranslationPage : Page
         {
             var input = Get(e, "input");
             var output = Get(e, "output");
-            var elapsed = e["elapsed"] is JsonValue ev && ev.TryGetValue<double>(out var sec) ? $"（用时 {sec:0.00} 秒）" : "";
+            string speedTag = "";
+            if (e["elapsed"] is JsonValue ev && ev.TryGetValue<double>(out var sec))
+            {
+                if (sec < 1.0)
+                    speedTag = $" · ⚡ 极速响应（{sec:0.00} 秒）";
+                else if (sec <= 2.5)
+                    speedTag = $" · 响应正常（{sec:0.00} 秒）";
+                else
+                    speedTag = $" · ⚠️ 耗时较长（{sec:0.00} 秒，建议确认是否开启了思考模式）";
+            }
             detail = $"{input}\n→ {output}";
-            message = (string.IsNullOrEmpty(message) ? "连接正常" : message) + elapsed;
+            message = (string.IsNullOrEmpty(message) ? "连接正常" : message) + speedTag;
         }
         ShowTestResult(ok, ok ? "测试成功" : "测试失败", message, detail);
     }
