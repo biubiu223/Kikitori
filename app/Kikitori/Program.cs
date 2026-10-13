@@ -37,6 +37,8 @@ public static class Program
         return 0;
     }
 
+    private static EventWaitHandle? _wakeupEvent;
+
     private static bool RedirectIfAlreadyRunning()
     {
         AppInstance keyInstance;
@@ -53,7 +55,26 @@ public static class Program
 
         if (keyInstance.IsCurrent)
         {
+            // 注册 Windows App SDK 激活事件
             keyInstance.Activated += (_, _) => ActivatedByAnotherInstance?.Invoke();
+            // 同时建立跨进程内核事件监听，确保 unpackaged 模式下 100% 能够收到唤醒
+            try
+            {
+                _wakeupEvent = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\Kikitori_Wakeup_Event");
+                Task.Run(() =>
+                {
+                    while (true)
+                    {
+                        _wakeupEvent.WaitOne();
+                        Log.Info("[Program] 收到另一个实例发来的唤醒信号，拉起主窗口");
+                        ActivatedByAnotherInstance?.Invoke();
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("创建唤醒事件监听失败：" + ex.Message);
+            }
             return false;
         }
 
@@ -80,23 +101,47 @@ public static class Program
                 keyInstance.Activated += (_, _) => ActivatedByAnotherInstance?.Invoke();
             }
             catch { }
+            try
+            {
+                _wakeupEvent = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\Kikitori_Wakeup_Event");
+                Task.Run(() =>
+                {
+                    while (true)
+                    {
+                        _wakeupEvent.WaitOne();
+                        Log.Info("[Program] 收到另一个实例发来的唤醒信号，拉起主窗口");
+                        ActivatedByAnotherInstance?.Invoke();
+                    }
+                });
+            }
+            catch { }
             return false;
         }
 
-        // 已有实例在真实运行：允许它把窗口拉到前台，然后把激活转给它
+        // 已有实例在真实运行：允许它把窗口拉到前台，并通过内核事件与 COM 双通道唤醒它
         try
         {
             Native.AllowSetForegroundWindow(keyInstance.ProcessId);
-            var actArgs = AppInstance.GetCurrent().GetActivatedEventArgs();
-            var evt = Native.CreateEvent(IntPtr.Zero, true, false, null);
-            Task.Run(() =>
+            Log.Info($"[Main] 已有实例在运行 (PID={keyInstance.ProcessId})，发出唤醒信号并退出当前进程");
+
+            // 1. 内核事件唤醒（保证 unpackaged 模式 100% 唤醒）
+            try
             {
-                try { keyInstance.RedirectActivationToAsync(actArgs).AsTask().Wait(5000); }
-                catch { }
-                Native.SetEvent(evt);
-            });
-            Native.CoWaitForMultipleObjects(0, 8000, 1, [evt], out _);
-            Native.CloseHandle(evt);
+                using var wakeup = EventWaitHandle.OpenExisting(@"Local\Kikitori_Wakeup_Event");
+                wakeup.Set();
+            }
+            catch (Exception exEvent)
+            {
+                Log.Warn("发送内核唤醒信号失败：" + exEvent.Message);
+            }
+
+            // 2. COM 激活重定向（作为辅助兜底）
+            try
+            {
+                var actArgs = AppInstance.GetCurrent().GetActivatedEventArgs();
+                keyInstance.RedirectActivationToAsync(actArgs).AsTask().Wait(2000);
+            }
+            catch { }
         }
         catch (Exception e)
         {

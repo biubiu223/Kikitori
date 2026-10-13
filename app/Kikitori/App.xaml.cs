@@ -96,6 +96,7 @@ public partial class App : Application
     public void ShowMainWindow()
     {
         if (IsExiting) return;
+        Log.Info("[App] 执行 ShowMainWindow()");
         try
         {
             if (MainWindow is null) CreateMainWindow();

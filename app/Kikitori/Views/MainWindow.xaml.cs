@@ -140,15 +140,28 @@ public sealed partial class MainWindow : Window
     // ------------------------------------------------------------------ 窗口
     public void ShowAndActivate()
     {
+        if (AppWindow.Presenter is OverlappedPresenter op && op.State == OverlappedPresenterState.Minimized)
+        {
+            op.Restore();
+        }
         AppWindow.Show();
         Activate();
         Native.BringToFront(_hwnd);
+        Native.ForceForeground(_hwnd);
     }
 
     private void OnClosing(AppWindow sender, AppWindowClosingEventArgs args)
     {
         if (App.Current.IsExiting) return;
-        // 关闭 = 隐藏到托盘；真正退出只能从托盘或字幕条菜单
+        // 如果托盘不可用（例如创建失败），点关闭直接退出程序，防止主窗口隐藏后变成幽灵进程
+        if (App.Current.Tray is null)
+        {
+            args.Cancel = true;
+            _ = App.Current.ExitAppAsync();
+            return;
+        }
+
+        // 托盘可用：关闭 = 隐藏到托盘；真正退出从托盘或字幕条菜单
         args.Cancel = true;
         SavePlacement();
         AppWindow.Hide();

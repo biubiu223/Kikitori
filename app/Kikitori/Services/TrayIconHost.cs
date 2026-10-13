@@ -33,7 +33,22 @@ public sealed class TrayIconHost : IDisposable
         };
         if (File.Exists(AppPaths.IconFile))
             _icon.Icon = new System.Drawing.Icon(AppPaths.IconFile);
-        _icon.ForceCreate(false);   // false：不要把进程切到“效率模式”，实时字幕不能被降速
+        try
+        {
+            _icon.ForceCreate(false);   // false：不要把进程切到“效率模式”，实时字幕不能被降速
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("首次创建托盘图标失败，将在后台重试：" + ex.Message);
+            Task.Run(async () =>
+            {
+                await Task.Delay(1500);
+                App.Current.Dispatcher?.TryEnqueue(() =>
+                {
+                    try { _icon.ForceCreate(false); } catch { }
+                });
+            });
+        }
 
         _ctl.StateChanged += Refresh;
         _ctl.OverlayVisibilityChanged += Refresh;
