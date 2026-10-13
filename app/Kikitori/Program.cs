@@ -1,4 +1,4 @@
-﻿using Kikitori.Services;
+using Kikitori.Services;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.Windows.AppLifecycle;
@@ -18,16 +18,22 @@ public static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        Log.Info($"[Main] 进程启动 PID={Environment.ProcessId}");
         WinRT.ComWrappersSupport.InitializeComWrappers();
         if (RedirectIfAlreadyRunning())
+        {
+            Log.Info($"[Main] RedirectIfAlreadyRunning 返回 true，退出当前进程");
             return 0;
+        }
 
+        Log.Info($"[Main] 进入 Application.Start");
         Application.Start(p =>
         {
             var context = new DispatcherQueueSynchronizationContext(DispatcherQueue.GetForCurrentThread());
             SynchronizationContext.SetSynchronizationContext(context);
             _ = new App();
         });
+        Log.Info($"[Main] Application.Start 正常退出");
         return 0;
     }
 
@@ -36,6 +42,7 @@ public static class Program
         AppInstance keyInstance;
         try
         {
+            _ = AppInstance.GetCurrent().GetActivatedEventArgs();
             keyInstance = AppInstance.FindOrRegisterForKey(InstanceKey);
         }
         catch (Exception e)
@@ -50,15 +57,41 @@ public static class Program
             return false;
         }
 
-        // 已有实例在运行：允许它把窗口拉到前台，然后把激活转给它
+        // 检查 keyInstance 注册的进程是否真实存活
+        bool isProcessAlive = false;
+        try
+        {
+            var proc = System.Diagnostics.Process.GetProcessById((int)keyInstance.ProcessId);
+            if (!proc.HasExited && proc.ProcessName.Contains("Kikitori", StringComparison.OrdinalIgnoreCase))
+            {
+                isProcessAlive = true;
+            }
+        }
+        catch
+        {
+            isProcessAlive = false;
+        }
+
+        if (!isProcessAlive)
+        {
+            Log.Warn($"发现残留的单实例登记 PID={keyInstance.ProcessId}，但对应进程已退出，按首个实例继续运行");
+            try
+            {
+                keyInstance.Activated += (_, _) => ActivatedByAnotherInstance?.Invoke();
+            }
+            catch { }
+            return false;
+        }
+
+        // 已有实例在真实运行：允许它把窗口拉到前台，然后把激活转给它
         try
         {
             Native.AllowSetForegroundWindow(keyInstance.ProcessId);
-            var args = AppInstance.GetCurrent().GetActivatedEventArgs();
+            var actArgs = AppInstance.GetCurrent().GetActivatedEventArgs();
             var evt = Native.CreateEvent(IntPtr.Zero, true, false, null);
             Task.Run(() =>
             {
-                try { keyInstance.RedirectActivationToAsync(args).AsTask().Wait(5000); }
+                try { keyInstance.RedirectActivationToAsync(actArgs).AsTask().Wait(5000); }
                 catch { }
                 Native.SetEvent(evt);
             });

@@ -25,7 +25,9 @@ public partial class App : Application
 
     public App()
     {
+        Log.Info("[App] 构造函数进入");
         InitializeComponent();
+        Log.Info("[App] InitializeComponent 完成");
         // 主窗口关掉只是隐藏到托盘，程序只在用户选“退出”时结束
         DispatcherShutdownMode = DispatcherShutdownMode.OnExplicitShutdown;
         UnhandledException += (_, e) =>
@@ -43,35 +45,52 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        Dispatcher = DispatcherQueue.GetForCurrentThread();
-        AppPaths.EnsureDirs();
-        Log.Info($"听译 v{Version} 启动（PID {Environment.ProcessId}）");
-        SettingsService.Load(Dispatcher);
-
-        Controller = new AppController(Dispatcher);
-        Controller.OverlayVisibilityChanged += ApplyOverlayVisibility;
-
-        Overlay = new OverlayWindow();
-        if (SettingsService.Current.Ui.ShowOverlay) Overlay.ShowOverlay();
-
-        CreateMainWindow();
-        MainWindow!.ShowAndActivate();
-
         try
         {
-            _tray = new TrayIconHost();
+            Log.Info("[App] OnLaunched 开始执行");
+            Dispatcher = DispatcherQueue.GetForCurrentThread();
+            AppPaths.EnsureDirs();
+            Log.Info($"听译 v{Version} 启动（PID {Environment.ProcessId}）");
+            SettingsService.Load(Dispatcher);
+            Log.Info("[App] SettingsService.Load 完成");
+
+            Controller = new AppController(Dispatcher);
+            Controller.OverlayVisibilityChanged += ApplyOverlayVisibility;
+            Log.Info("[App] AppController 创建完成");
+
+            Overlay = new OverlayWindow();
+            Log.Info("[App] OverlayWindow 创建完成");
+            if (SettingsService.Current.Ui.ShowOverlay) Overlay.ShowOverlay();
+            Log.Info("[App] OverlayWindow ShowOverlay 完成");
+
+            CreateMainWindow();
+            Log.Info("[App] CreateMainWindow 完成");
+            MainWindow!.ShowAndActivate();
+            Log.Info("[App] MainWindow ShowAndActivate 完成");
+
+            try
+            {
+                _tray = new TrayIconHost();
+                Log.Info("[App] TrayIconHost 创建完成");
+            }
+            catch (Exception e)
+            {
+                Log.Error("创建托盘图标失败：" + e);
+            }
+
+            Program.ActivatedByAnotherInstance += () => Dispatcher.TryEnqueue(ShowMainWindow);
+
+            // 启动引擎；“启动后自动开始监听”开着就在收到 hello 后自动 start
+            Controller.Startup(SettingsService.Current.Ui.AutoStart);
+            Log.Info("[App] Controller.Startup 完成");
+
+            TestHook.StartIfEnabled();
+            Log.Info("[App] OnLaunched 全部执行完成");
         }
-        catch (Exception e)
+        catch (Exception ex)
         {
-            Log.Error("创建托盘图标失败：" + e);
+            Log.Error("[App] OnLaunched 发生未捕获异常: " + ex);
         }
-
-        Program.ActivatedByAnotherInstance += () => Dispatcher.TryEnqueue(ShowMainWindow);
-
-        // 启动引擎；“启动后自动开始监听”开着就在收到 hello 后自动 start
-        Controller.Startup(SettingsService.Current.Ui.AutoStart);
-
-        TestHook.StartIfEnabled();
     }
 
     public void ShowMainWindow()

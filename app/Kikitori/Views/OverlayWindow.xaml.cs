@@ -89,7 +89,7 @@ public sealed partial class OverlayWindow : Window
             p.IsMinimizable = false;
             p.IsAlwaysOnTop = true;
         }
-        AppWindow.IsShownInSwitchers = false;                                    // 不进任务栏 / Alt+Tab
+        try { AppWindow.IsShownInSwitchers = false; } catch { }                 // 不进任务栏 / Alt+Tab（某些系统上未实现则由下行 WS_EX_TOOLWINDOW 接管）
         Native.MakeBorderlessPopup(_hwnd);
         Native.AddExStyle(_hwnd, Native.WS_EX_TOOLWINDOW, Native.WS_EX_APPWINDOW);
         int none = Native.DWMWA_COLOR_NONE, noRound = Native.DWMWCP_DONOTROUND;
