@@ -64,7 +64,7 @@ import time  # noqa: E402
 import traceback  # noqa: E402
 from datetime import datetime  # noqa: E402
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 PROTOCOL = 1
 
 

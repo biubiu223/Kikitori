@@ -31,7 +31,7 @@
     <AssemblyTitle>听译</AssemblyTitle>
     <Description>听译 Kikitori：实时识别直播语音并翻译成中文字幕</Description>
     <Copyright>GPL-3.0 · https://github.com/biubiu223/Kikitori</Copyright>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <NoWarn>$(NoWarn);CA1416;MVVMTK0045</NoWarn>
   </PropertyGroup>
 

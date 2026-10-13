@@ -1,4 +1,4 @@
-﻿; Kikitori（听译）安装包脚本 —— Inno Setup 6
+; Kikitori（听译）安装包脚本 —— Inno Setup 6
 ;
 ; 一般不直接运行，用仓库根目录的 build.ps1 -Installer 生成：
 ;   powershell -ExecutionPolicy Bypass -File build.ps1 -SkipEngine -SkipApp -Installer
@@ -10,7 +10,7 @@
 ; 本文件含中文，需保存为 UTF-8 with BOM。
 
 #ifndef AppVersion
-  #define AppVersion "1.0.0"
+  #define AppVersion "1.1.0"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\dist\Kikitori"
